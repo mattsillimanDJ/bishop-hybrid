@@ -8,6 +8,7 @@ from app.services.memory_service import (
     search_memories,
     delete_memory_by_query,
 )
+from app.services.chat_service import generate_reply
 
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
@@ -102,8 +103,6 @@ async def slack_events(request: Request):
         result = post_message(channel, f"Here’s what I remember:\n{formatted}")
         return {"ok": True, "slack_result": result}
 
-    result = post_message(
-        channel,
-        "Bishop heard you. Try: `remember ...`, `recall ...`, `forget ...`, or `show memory`"
-    )
+    ai_reply = generate_reply(user_id="matt", message=raw_text)
+    result = post_message(channel, ai_reply)
     return {"ok": True, "slack_result": result}
