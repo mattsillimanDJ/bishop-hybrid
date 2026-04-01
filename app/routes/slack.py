@@ -15,6 +15,8 @@ from app.services.conversation_log_service import log_conversation
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
 
+processed_event_ids = set()
+
 
 def post_message(channel: str, text: str):
     if not settings.SLACK_BOT_TOKEN:
@@ -35,10 +37,24 @@ def post_message(channel: str, text: str):
 
 @router.post("/slack/events")
 async def slack_events(request: Request):
+    retry_num = request.headers.get("x-slack-retry-num")
+    retry_reason = request.headers.get("x-slack-retry-reason")
+
+    if retry_num is not None:
+        print(f"Ignoring Slack retry #{retry_num}, reason: {retry_reason}")
+        return {"ok": True}
+
     payload = await request.json()
 
     if payload.get("type") == "url_verification":
         return {"challenge": payload.get("challenge")}
+
+    event_id = payload.get("event_id")
+    if event_id:
+        if event_id in processed_event_ids:
+            print(f"Ignoring duplicate Slack event: {event_id}")
+            return {"ok": True}
+        processed_event_ids.add(event_id)
 
     event = payload.get("event", {})
 
