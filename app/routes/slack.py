@@ -88,8 +88,8 @@ async def slack_events(request: Request):
             if not memory_text:
                 reply_text = "Tell me what to remember."
             else:
-                result = add_memory(memory_text)
-                reply_text = f"Got it. I’ll remember that. {result}"
+                result = add_memory(user_id=user_id, content=memory_text)
+                reply_text = str(result)
 
             post_message(channel_id, reply_text)
 
@@ -108,7 +108,7 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lower_text == "show memory":
-            memories = get_memories()
+            memories = get_memories(user_id=user_id)
 
             if not memories:
                 reply_text = "I do not have any memories saved yet."
@@ -116,7 +116,12 @@ async def slack_events(request: Request):
                 lines = []
                 for memory in memories[:20]:
                     if isinstance(memory, dict):
-                        value = memory.get("memory") or memory.get("text") or str(memory)
+                        value = (
+                            memory.get("content")
+                            or memory.get("memory")
+                            or memory.get("text")
+                            or str(memory)
+                        )
                     else:
                         value = str(memory)
                     lines.append(f"- {value}")
@@ -144,14 +149,19 @@ async def slack_events(request: Request):
             if not query:
                 reply_text = "Tell me what you want me to recall."
             else:
-                matches = search_memories(query)
+                matches = search_memories(user_id=user_id, query=query, limit=10)
                 if not matches:
                     reply_text = f"I couldn’t find anything about '{query}'."
                 else:
                     lines = []
                     for match in matches[:10]:
                         if isinstance(match, dict):
-                            value = match.get("memory") or match.get("text") or str(match)
+                            value = (
+                                match.get("content")
+                                or match.get("memory")
+                                or match.get("text")
+                                or str(match)
+                            )
                         else:
                             value = str(match)
                         lines.append(f"- {value}")
@@ -179,7 +189,7 @@ async def slack_events(request: Request):
             if not query:
                 reply_text = "Tell me what you want me to forget."
             else:
-                result = delete_memory_by_query(query)
+                result = delete_memory_by_query(user_id=user_id, query=query)
                 reply_text = str(result)
 
             post_message(channel_id, reply_text)
@@ -198,7 +208,7 @@ async def slack_events(request: Request):
             )
             return {"ok": True}
 
-        reply_text = generate_reply(user_text)
+        reply_text = generate_reply(user_id=user_id, message=user_text)
         post_message(channel_id, reply_text)
 
         log_conversation(
