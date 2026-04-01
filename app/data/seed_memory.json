@@ -1,0 +1,27 @@
+[
+  {
+    "user_id": "matt",
+    "category": "profile",
+    "content": "User's name is Matt."
+  },
+  {
+    "user_id": "matt",
+    "category": "profile",
+    "content": "Matt is an advertising executive and DJ."
+  },
+  {
+    "user_id": "matt",
+    "category": "profile",
+    "content": "Bishop is a private AI workspace for work, DJ/music, family, Carmen, and general life."
+  },
+  {
+    "user_id": "matt",
+    "category": "preference",
+    "content": "Matt prefers clear, practical, strategic help."
+  },
+  {
+    "user_id": "matt",
+    "category": "preference",
+    "content": "Matt wants Bishop to feel like a personal AI operating system, not a generic chatbot."
+  }
+]
