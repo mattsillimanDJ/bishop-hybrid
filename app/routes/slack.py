@@ -11,6 +11,7 @@ from app.services.memory_service import (
 )
 from app.services.chat_service import generate_reply
 from app.services.conversation_log_service import log_conversation
+from app.services.mode_service import get_mode, set_mode, VALID_MODES
 
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
@@ -30,9 +31,6 @@ def post_message(channel: str, text: str):
         error_message = e.response.get("error", "unknown_slack_error")
         print(f"Slack API error: {error_message}")
         return {"ok": False, "error": error_message}
-    except Exception as e:
-        print(f"Unexpected Slack post error: {str(e)}")
-        return {"ok": False, "error": str(e)}
 
 
 @router.post("/slack/events")
@@ -98,6 +96,8 @@ async def slack_events(request: Request):
     lower_text = user_text.lower()
 
     try:
+        current_mode = get_mode(user_id)
+
         if lower_text.startswith("remember "):
             memory_text = user_text[9:].strip()
 
@@ -154,6 +154,49 @@ async def slack_events(request: Request):
                 assistant_response=reply_text,
                 memory_used=False,
                 mode="memory_command",
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        if lower_text == "show mode":
+            reply_text = f"Current mode: {current_mode}"
+            post_message(channel_id, reply_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=reply_text,
+                memory_used=False,
+                mode="mode_command",
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        if lower_text.startswith("mode "):
+            requested_mode = lower_text.replace("mode ", "", 1).strip()
+
+            if requested_mode not in VALID_MODES:
+                reply_text = "Invalid mode. Use: default, work, or personal."
+            else:
+                set_mode(user_id, requested_mode)
+                reply_text = f"Mode set to {requested_mode}."
+
+            post_message(channel_id, reply_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=reply_text,
+                memory_used=False,
+                mode="mode_command",
                 provider="system",
                 model=None,
             )
@@ -235,7 +278,7 @@ async def slack_events(request: Request):
             user_message=user_text,
             assistant_response=reply_text,
             memory_used=True,
-            mode="default",
+            mode=current_mode,
             provider="openai",
             model=settings.OPENAI_MODEL,
         )

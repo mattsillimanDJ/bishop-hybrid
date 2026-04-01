@@ -2,6 +2,7 @@ import re
 from openai import OpenAI
 from app.config import settings
 from app.services.memory_service import search_memories
+from app.services.mode_service import get_mode
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
@@ -45,20 +46,44 @@ def generate_memory_context(user_id: str, message: str, limit: int = 8) -> str:
     return "\n".join(lines)
 
 
+def get_mode_system_prompt(mode: str) -> str:
+    prompts = {
+        "default": (
+            "You are Bishop, a helpful private AI assistant for Matt. "
+            "Be practical, concise, warm, and useful. "
+            "Use the provided memory when it is relevant, but do not invent facts. "
+            "If the memory is not relevant, answer normally and say less rather than more."
+        ),
+        "work": (
+            "You are Bishop in work mode for Matt. "
+            "Be practical, concise, strategic, and professionally useful. "
+            "Focus on clear thinking, action, organization, and business value. "
+            "Use the provided memory when it is relevant, but do not invent facts. "
+            "If the memory is not relevant, answer normally and say less rather than more."
+        ),
+        "personal": (
+            "You are Bishop in personal mode for Matt. "
+            "Be warm, supportive, practical, and thoughtful. "
+            "Help with life, family, relationships, and personal decisions in a grounded way. "
+            "Use the provided memory when it is relevant, but do not invent facts. "
+            "If the memory is not relevant, answer normally and say less rather than more."
+        ),
+    }
+    return prompts.get(mode, prompts["default"])
+
+
 def generate_reply(user_id: str, message: str) -> str:
     if not settings.OPENAI_API_KEY:
         return "I’m missing an OpenAI API key."
 
+    mode = get_mode(user_id)
     memory_context = generate_memory_context(user_id=user_id, message=message)
-
-    system_prompt = (
-        "You are Bishop, a helpful private AI assistant for Matt. "
-        "Be practical, concise, warm, and useful. "
-        "Use the provided memory when it is relevant, but do not invent facts. "
-        "If the memory is not relevant, answer normally and say less rather than more."
-    )
+    system_prompt = get_mode_system_prompt(mode)
 
     user_prompt = f"""
+Current mode:
+{mode}
+
 Relevant memory:
 {memory_context}
 
