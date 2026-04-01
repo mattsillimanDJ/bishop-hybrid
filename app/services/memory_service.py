@@ -114,3 +114,67 @@ def add_memory(user_id: str, category: str, content: str) -> Dict:
         "category": category,
         "content": content,
     }
+
+
+def search_memories(user_id: str, query: str, limit: int = 10) -> List[Dict]:
+    init_db()
+    conn = get_connection()
+    cur = conn.cursor()
+
+    like_query = f"%{query}%"
+    cur.execute(
+        """
+        SELECT id, user_id, category, content, created_at
+        FROM memory_entries
+        WHERE user_id = ?
+          AND LOWER(content) LIKE LOWER(?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (user_id, like_query, limit)
+    )
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [dict(row) for row in rows]
+
+
+def delete_memory_by_query(user_id: str, query: str) -> Dict:
+    init_db()
+    conn = get_connection()
+    cur = conn.cursor()
+
+    like_query = f"%{query}%"
+
+    cur.execute(
+        """
+        SELECT id, content
+        FROM memory_entries
+        WHERE user_id = ?
+          AND LOWER(content) LIKE LOWER(?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (user_id, like_query)
+    )
+
+    row = cur.fetchone()
+
+    if not row:
+        conn.close()
+        return {"deleted": False, "message": "No matching memory found"}
+
+    cur.execute(
+        "DELETE FROM memory_entries WHERE id = ?",
+        (row["id"],)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "deleted": True,
+        "id": row["id"],
+        "content": row["content"]
+    }

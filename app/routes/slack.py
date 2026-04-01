@@ -2,7 +2,12 @@ from fastapi import APIRouter, Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from app.config import settings
-from app.services.memory_service import add_memory, get_memories
+from app.services.memory_service import (
+    add_memory,
+    get_memories,
+    search_memories,
+    delete_memory_by_query,
+)
 
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
@@ -58,6 +63,35 @@ async def slack_events(request: Request):
         result = post_message(channel, "I didn’t catch anything to remember.")
         return {"ok": True, "slack_result": result}
 
+    if text.startswith("recall "):
+        query = raw_text[7:].strip()
+        if not query:
+            result = post_message(channel, "Tell me what to recall, for example: `recall Ben`")
+            return {"ok": True, "slack_result": result}
+
+        matches = search_memories(user_id="matt", query=query, limit=10)
+        if not matches:
+            result = post_message(channel, f"I couldn’t find anything about: {query}")
+            return {"ok": True, "slack_result": result}
+
+        formatted = "\n".join([f"- {m['content']}" for m in matches])
+        result = post_message(channel, f"Here’s what I found about *{query}*:\n{formatted}")
+        return {"ok": True, "slack_result": result}
+
+    if text.startswith("forget "):
+        query = raw_text[7:].strip()
+        if not query:
+            result = post_message(channel, "Tell me what to forget, for example: `forget investing`")
+            return {"ok": True, "slack_result": result}
+
+        deleted = delete_memory_by_query(user_id="matt", query=query)
+        if not deleted["deleted"]:
+            result = post_message(channel, f"I couldn’t find a matching memory for: {query}")
+            return {"ok": True, "slack_result": result}
+
+        result = post_message(channel, f"Forgot: {deleted['content']}")
+        return {"ok": True, "slack_result": result}
+
     if text == "show memory" or "show memory" in text:
         memories = get_memories(user_id="matt", limit=10)
         if not memories:
@@ -68,5 +102,8 @@ async def slack_events(request: Request):
         result = post_message(channel, f"Here’s what I remember:\n{formatted}")
         return {"ok": True, "slack_result": result}
 
-    result = post_message(channel, "Bishop heard you. Try: `remember ...` or `show memory`")
+    result = post_message(
+        channel,
+        "Bishop heard you. Try: `remember ...`, `recall ...`, `forget ...`, or `show memory`"
+    )
     return {"ok": True, "slack_result": result}
