@@ -1,5 +1,5 @@
 import sqlite3
-from app.core.config import settings
+from app.config import settings
 
 DB_PATH = "app/data/bishop_memory.db"
 
