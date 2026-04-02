@@ -1,4 +1,5 @@
 import re
+import time
 
 from fastapi import APIRouter, Request
 from slack_sdk import WebClient
@@ -28,6 +29,11 @@ router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
 
 processed_event_ids = set()
+recent_message_fingerprints: dict[str, float] = {}
+
+MAX_PROCESSED_EVENT_IDS = 1000
+MESSAGE_DEDUPE_WINDOW_SECONDS = 8
+MESSAGE_DEDUPE_CACHE_LIMIT = 1000
 
 
 def post_message(channel: str, text: str):
@@ -45,6 +51,50 @@ def post_message(channel: str, text: str):
 
 def strip_app_mention(text: str) -> str:
     return re.sub(r"<@[^>]+>", "", text).strip()
+
+
+def normalize_message_for_dedupe(text: str) -> str:
+    normalized = (text or "").strip().lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = re.sub(r"[!?.。、，,;:]+$", "", normalized)
+    return normalized.strip()
+
+
+def prune_recent_message_fingerprints(now: float):
+    expired_keys = [
+        key
+        for key, timestamp in recent_message_fingerprints.items()
+        if now - timestamp > MESSAGE_DEDUPE_WINDOW_SECONDS
+    ]
+    for key in expired_keys:
+        recent_message_fingerprints.pop(key, None)
+
+    if len(recent_message_fingerprints) > MESSAGE_DEDUPE_CACHE_LIMIT:
+        oldest_items = sorted(
+            recent_message_fingerprints.items(),
+            key=lambda item: item[1],
+        )[: len(recent_message_fingerprints) - MESSAGE_DEDUPE_CACHE_LIMIT]
+        for key, _ in oldest_items:
+            recent_message_fingerprints.pop(key, None)
+
+
+def is_duplicate_recent_message(user_id: str, channel_id: str, user_text: str) -> bool:
+    normalized_text = normalize_message_for_dedupe(user_text)
+    if not normalized_text:
+        return False
+
+    now = time.time()
+    prune_recent_message_fingerprints(now)
+
+    fingerprint = f"{user_id}:{channel_id}:{normalized_text}"
+    last_seen = recent_message_fingerprints.get(fingerprint)
+
+    if last_seen and now - last_seen <= MESSAGE_DEDUPE_WINDOW_SECONDS:
+        print(f"Skipping near-duplicate Slack message: {fingerprint}")
+        return True
+
+    recent_message_fingerprints[fingerprint] = now
+    return False
 
 
 def help_text() -> str:
@@ -127,7 +177,7 @@ async def slack_events(request: Request):
             return {"ok": True}
         processed_event_ids.add(event_id)
 
-        if len(processed_event_ids) > 1000:
+        if len(processed_event_ids) > MAX_PROCESSED_EVENT_IDS:
             processed_event_ids.pop()
 
     if request.headers.get("x-slack-retry-num"):
@@ -151,6 +201,9 @@ async def slack_events(request: Request):
     user_text = strip_app_mention(raw_text)
 
     if not user_id or not channel_id or not user_text:
+        return {"ok": True}
+
+    if is_duplicate_recent_message(user_id=user_id, channel_id=channel_id, user_text=user_text):
         return {"ok": True}
 
     try:

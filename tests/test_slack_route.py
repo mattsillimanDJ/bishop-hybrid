@@ -79,6 +79,7 @@ def test_skips_retry_header():
 
 def test_skips_duplicate_event_id(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     post_calls = []
 
@@ -100,8 +101,61 @@ def test_skips_duplicate_event_id(monkeypatch):
     assert len(post_calls) == 1
 
 
+def test_skips_near_duplicate_message_same_text(monkeypatch):
+    slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
+
+    post_calls = []
+
+    def fake_post_message(channel, text):
+        post_calls.append((channel, text))
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Hello back")
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    first = client.post("/slack/events", json=make_event("yes please", event_id="evt-a"))
+    second = client.post("/slack/events", json=make_event("yes please", event_id="evt-b"))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == {"ok": True}
+    assert second.json() == {"ok": True}
+    assert len(post_calls) == 1
+
+
+def test_skips_near_duplicate_message_ignores_trailing_punctuation(monkeypatch):
+    slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
+
+    post_calls = []
+
+    def fake_post_message(channel, text):
+        post_calls.append((channel, text))
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Hello back")
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    first = client.post("/slack/events", json=make_event("yes please", event_id="evt-c"))
+    second = client.post("/slack/events", json=make_event("yes please!", event_id="evt-d"))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == {"ok": True}
+    assert second.json() == {"ok": True}
+    assert len(post_calls) == 1
+
+
 def test_help_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -126,6 +180,7 @@ def test_help_command(monkeypatch):
 
 def test_show_provider_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -149,6 +204,7 @@ def test_show_provider_command(monkeypatch):
 
 def test_status_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -173,6 +229,7 @@ def test_status_command(monkeypatch):
 
 def test_provider_openai_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -197,6 +254,7 @@ def test_provider_openai_command(monkeypatch):
 
 def test_provider_default_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -224,6 +282,7 @@ def test_provider_default_command(monkeypatch):
 
 def test_mode_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -248,6 +307,7 @@ def test_mode_command(monkeypatch):
 
 def test_show_mode_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -268,6 +328,7 @@ def test_show_mode_command(monkeypatch):
 
 def test_show_recent_conversations_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -332,6 +393,7 @@ def test_show_recent_conversations_command(monkeypatch):
 
 def test_show_last_5_conversations_command(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -383,6 +445,7 @@ def test_show_last_5_conversations_command(monkeypatch):
 
 def test_show_last_conversations_caps_at_10(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
@@ -424,6 +487,7 @@ def test_show_last_conversations_caps_at_10(monkeypatch):
 
 def test_normal_chat_message(monkeypatch):
     slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
 
     captured = {}
 
