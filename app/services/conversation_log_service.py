@@ -1,4 +1,3 @@
-import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,6 +121,43 @@ def get_recent_conversations(limit: int = 20):
             LIMIT ?
             """,
             (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_recent_conversations_for_user(
+    *,
+    user_id: str,
+    limit: int = 5,
+    platform: str = "slack",
+):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                created_at,
+                platform,
+                user_id,
+                channel_id,
+                session_id,
+                user_message,
+                assistant_response,
+                memory_used,
+                mode,
+                provider,
+                model,
+                metadata
+            FROM conversation_logs
+            WHERE user_id = ?
+              AND platform = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, platform, limit),
         ).fetchall()
         return [dict(row) for row in rows]
     finally:

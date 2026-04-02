@@ -12,7 +12,10 @@ from app.services.memory_service import (
     delete_memory_by_query,
 )
 from app.services.chat_service import generate_reply
-from app.services.conversation_log_service import log_conversation
+from app.services.conversation_log_service import (
+    log_conversation,
+    get_recent_conversations_for_user,
+)
 from app.services.mode_service import get_mode, set_mode, VALID_MODES
 from app.services.provider_state_service import (
     get_provider_override,
@@ -51,6 +54,8 @@ def help_text() -> str:
         "• recall ...\n"
         "• forget ...\n"
         "• show memory\n"
+        "• show recent conversations\n"
+        "• show last 5 conversations\n"
         "• mode default\n"
         "• mode work\n"
         "• mode personal\n"
@@ -63,6 +68,49 @@ def help_text() -> str:
         "• help\n\n"
         "Or just mention me normally and I’ll reply."
     )
+
+
+def format_recent_conversations_for_slack(items: list[dict]) -> str:
+    if not items:
+        return "I don’t have any recent conversations for you yet."
+
+    lines = ["Here are your recent conversations:"]
+
+    for item in items:
+        created_at = item.get("created_at", "")
+        timestamp = created_at.replace("T", " ")[:19] if created_at else "unknown time"
+
+        user_message = (item.get("user_message") or "").strip().replace("\n", " ")
+        assistant_response = (item.get("assistant_response") or "").strip().replace("\n", " ")
+
+        if len(user_message) > 80:
+            user_message = user_message[:77] + "..."
+        if len(assistant_response) > 120:
+            assistant_response = assistant_response[:117] + "..."
+
+        lines.append(
+            f"• {timestamp}\n"
+            f"  You: {user_message}\n"
+            f"  Bishop: {assistant_response}"
+        )
+
+    return "\n".join(lines)
+
+
+def get_requested_conversation_limit(lowered: str) -> int | None:
+    if lowered == "show recent conversations":
+        return 5
+
+    match = re.fullmatch(r"show last (\d+) conversations", lowered)
+    if not match:
+        return None
+
+    requested_limit = int(match.group(1))
+    if requested_limit < 1:
+        return 1
+    if requested_limit > 10:
+        return 10
+    return requested_limit
 
 
 @router.post("/slack/events")
@@ -211,6 +259,31 @@ async def slack_events(request: Request):
                 user_message=user_text,
                 assistant_response=response_text,
                 memory_used=True,
+                mode=get_mode(user_id),
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        elif get_requested_conversation_limit(lowered) is not None:
+            limit = get_requested_conversation_limit(lowered) or 5
+            items = get_recent_conversations_for_user(
+                user_id=user_id,
+                limit=limit,
+                platform="slack",
+            )
+            response_text = format_recent_conversations_for_slack(items)
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
                 mode=get_mode(user_id),
                 provider="system",
                 model=None,

@@ -3,10 +3,11 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.routes import slack as slack_route
 
+
 client = TestClient(app)
 
 
-def make_payload(text, event_id="evt-1", user_id="U123", channel_id="C123"):
+def make_event(text: str, event_id: str = "evt-1", user_id: str = "U123", channel_id: str = "C123"):
     return {
         "type": "event_callback",
         "event_id": event_id,
@@ -14,157 +15,388 @@ def make_payload(text, event_id="evt-1", user_id="U123", channel_id="C123"):
             "type": "app_mention",
             "user": user_id,
             "channel": channel_id,
-            "text": f"<@BISHOP> {text}",
+            "text": f"<@BOT> {text}",
         },
     }
 
 
-def test_slack_url_verification():
+def test_url_verification():
     response = client.post(
         "/slack/events",
-        json={"type": "url_verification", "challenge": "hello123"},
+        json={"type": "url_verification", "challenge": "abc123"},
     )
     assert response.status_code == 200
-    assert response.json() == {"challenge": "hello123"}
+    assert response.json() == {"challenge": "abc123"}
 
 
-def test_slack_status_command(monkeypatch):
-    messages = []
-
-    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: messages.append((channel, text)) or {"ok": True})
-    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "work")
-    monkeypatch.setattr(slack_route, "get_provider_override", lambda: "claude")
-    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "claude")
-    monkeypatch.setattr(slack_route.settings, "LLM_PROVIDER", "openai")
-    monkeypatch.setattr(slack_route.settings, "OPENAI_API_KEY", "test-openai-key")
-    monkeypatch.setattr(slack_route.settings, "ANTHROPIC_API_KEY", "test-anthropic-key")
-    monkeypatch.setattr(slack_route.settings, "OPENAI_MODEL", "gpt-5.4")
-    monkeypatch.setattr(slack_route.settings, "ANTHROPIC_MODEL", "claude-sonnet-4-6")
-
-    response = client.post("/slack/events", json=make_payload("status", event_id="evt-status"))
-
+def test_ignores_non_event_callback():
+    response = client.post("/slack/events", json={"type": "something_else"})
     assert response.status_code == 200
     assert response.json() == {"ok": True}
-    assert len(messages) == 1
-    assert messages[0][0] == "C123"
-    assert "Bishop Status" in messages[0][1]
-    assert "Mode:* work" in messages[0][1]
-    assert "Effective provider:* claude" in messages[0][1]
-    assert "Railway default provider:* openai" in messages[0][1]
 
 
-def test_slack_show_provider_command(monkeypatch):
-    messages = []
-
-    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: messages.append((channel, text)) or {"ok": True})
-    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
-    monkeypatch.setattr(slack_route, "get_provider_override", lambda: None)
-    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
-    monkeypatch.setattr(slack_route.settings, "LLM_PROVIDER", "openai")
-
-    response = client.post("/slack/events", json=make_payload("show provider", event_id="evt-provider"))
-
+def test_ignores_non_app_mention():
+    response = client.post(
+        "/slack/events",
+        json={
+            "type": "event_callback",
+            "event_id": "evt-non-mention",
+            "event": {"type": "message", "user": "U123", "channel": "C123", "text": "hello"},
+        },
+    )
     assert response.status_code == 200
     assert response.json() == {"ok": True}
-    assert len(messages) == 1
-    assert "Effective provider: openai" in messages[0][1]
-    assert "Override: none" in messages[0][1]
-    assert "Railway default: openai" in messages[0][1]
 
 
-def test_slack_mode_command(monkeypatch):
-    messages = []
-    captured = {}
-
-    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: messages.append((channel, text)) or {"ok": True})
-    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
-    monkeypatch.setattr(slack_route, "set_mode", lambda user_id, mode: captured.update({"user_id": user_id, "mode": mode}))
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: captured.get("mode", "default"))
-
-    response = client.post("/slack/events", json=make_payload("mode work", event_id="evt-mode"))
-
+def test_ignores_bot_messages():
+    response = client.post(
+        "/slack/events",
+        json={
+            "type": "event_callback",
+            "event_id": "evt-bot",
+            "event": {
+                "type": "app_mention",
+                "bot_id": "B999",
+                "user": "U123",
+                "channel": "C123",
+                "text": "<@BOT> hello",
+            },
+        },
+    )
     assert response.status_code == 200
     assert response.json() == {"ok": True}
-    assert captured["user_id"] == "U123"
-    assert captured["mode"] == "work"
-    assert len(messages) == 1
-    assert messages[0][1] == "Mode set to work."
 
 
-def test_slack_provider_claude_command(monkeypatch):
-    messages = []
-    captured = {}
-
-    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: messages.append((channel, text)) or {"ok": True})
-    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "work")
-    monkeypatch.setattr(slack_route, "set_provider_override", lambda provider: captured.update({"provider": provider}))
-
-    response = client.post("/slack/events", json=make_payload("provider claude", event_id="evt-claude"))
-
+def test_skips_retry_header():
+    response = client.post(
+        "/slack/events",
+        headers={"x-slack-retry-num": "1"},
+        json=make_event("hello", event_id="evt-retry"),
+    )
     assert response.status_code == 200
     assert response.json() == {"ok": True}
-    assert captured["provider"] == "claude"
-    assert len(messages) == 1
-    assert messages[0][1] == "Provider override set to claude."
 
 
-def test_slack_provider_default_command(monkeypatch):
-    messages = []
-    captured = {"cleared": False}
+def test_skips_duplicate_event_id(monkeypatch):
+    slack_route.processed_event_ids.clear()
 
-    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: messages.append((channel, text)) or {"ok": True})
+    post_calls = []
+
+    def fake_post_message(channel, text):
+        post_calls.append((channel, text))
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Hello back")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "work")
-    monkeypatch.setattr(slack_route, "clear_provider_override", lambda: captured.update({"cleared": True}))
 
-    response = client.post("/slack/events", json=make_payload("provider default", event_id="evt-default"))
-
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
-    assert captured["cleared"] is True
-    assert len(messages) == 1
-    assert "Provider override cleared" in messages[0][1]
-
-
-def test_slack_normal_chat_uses_generate_reply(monkeypatch):
-    messages = []
-
-    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: messages.append((channel, text)) or {"ok": True})
-    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "work")
-    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Test normal reply")
-    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
-    monkeypatch.setattr(slack_route.settings, "OPENAI_MODEL", "gpt-5.4")
-    monkeypatch.setattr(slack_route.settings, "ANTHROPIC_MODEL", "claude-sonnet-4-6")
-
-    response = client.post("/slack/events", json=make_payload("hello bishop", event_id="evt-chat"))
-
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
-    assert len(messages) == 1
-    assert messages[0][1] == "Test normal reply"
-
-
-def test_slack_duplicate_event_is_ignored(monkeypatch):
-    messages = []
-
-    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: messages.append((channel, text)) or {"ok": True})
-    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
-    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Should only send once")
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
-    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
-    monkeypatch.setattr(slack_route.settings, "OPENAI_MODEL", "gpt-5.4")
-
-    payload = make_payload("hello again", event_id="evt-duplicate")
-
-    first = client.post("/slack/events", json=payload)
-    second = client.post("/slack/events", json=payload)
+    first = client.post("/slack/events", json=make_event("hello", event_id="evt-dup"))
+    second = client.post("/slack/events", json=make_event("hello again", event_id="evt-dup"))
 
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json() == {"ok": True}
     assert second.json() == {"ok": True}
-    assert len(messages) == 1
+    assert len(post_calls) == 1
+
+
+def test_help_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["channel"] = channel
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("help", event_id="evt-help"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert captured["channel"] == "C123"
+    assert "Here are the commands I understand:" in captured["text"]
+    assert "show recent conversations" in captured["text"]
+    assert "show last 5 conversations" in captured["text"]
+
+
+def test_show_provider_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "get_provider_override", lambda: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("show provider", event_id="evt-provider"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert "Effective provider: openai" in captured["text"]
+    assert "Override: none" in captured["text"]
+
+
+def test_status_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "get_provider_override", lambda: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("status", event_id="evt-status"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert "*Bishop Status*" in captured["text"]
+    assert "*Mode:* default" in captured["text"]
+    assert "*Effective provider:* openai" in captured["text"]
+
+
+def test_provider_openai_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    provider_calls = []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_provider_override", lambda provider: provider_calls.append(provider))
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("provider openai", event_id="evt-provider-openai"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert provider_calls == ["openai"]
+    assert captured["text"] == "Provider override set to openai."
+
+
+def test_provider_default_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    cleared = {"called": False}
+
+    def fake_clear_provider_override():
+        cleared["called"] = True
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "clear_provider_override", fake_clear_provider_override)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("provider default", event_id="evt-provider-default"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert cleared["called"] is True
+    assert captured["text"] == "Provider override cleared. Falling back to Railway default."
+
+
+def test_mode_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    mode_calls = []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_mode", lambda user_id, mode: mode_calls.append((user_id, mode)))
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "work")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("mode work", event_id="evt-mode"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert mode_calls == [("U123", "work")]
+    assert captured["text"] == "Mode set to work."
+
+
+def test_show_mode_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "personal")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("show mode", event_id="evt-show-mode"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert captured["text"] == "Current mode: personal"
+
+
+def test_show_recent_conversations_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_recent_conversations_for_user",
+        lambda user_id, limit, platform: [
+            {
+                "created_at": "2026-04-02T14:30:00+00:00",
+                "user_message": "status",
+                "assistant_response": "Bishop status output",
+            },
+            {
+                "created_at": "2026-04-02T14:25:00+00:00",
+                "user_message": "show mode",
+                "assistant_response": "Current mode: work",
+            },
+        ],
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("show recent conversations", event_id="evt-show-recent"),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert "Here are your recent conversations:" in captured["text"]
+    assert "You: status" in captured["text"]
+    assert "Bishop: Bishop status output" in captured["text"]
+    assert "You: show mode" in captured["text"]
+
+
+def test_show_last_5_conversations_command(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    received = {}
+
+    def fake_get_recent_conversations_for_user(user_id, limit, platform):
+        received["user_id"] = user_id
+        received["limit"] = limit
+        received["platform"] = platform
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_recent_conversations_for_user",
+        fake_get_recent_conversations_for_user,
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("show last 5 conversations", event_id="evt-show-last-5"),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert received == {"user_id": "U123", "limit": 5, "platform": "slack"}
+    assert captured["text"] == "I don’t have any recent conversations for you yet."
+
+
+def test_show_last_conversations_caps_at_10(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    received = {}
+
+    def fake_get_recent_conversations_for_user(user_id, limit, platform):
+        received["limit"] = limit
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_recent_conversations_for_user",
+        fake_get_recent_conversations_for_user,
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("show last 99 conversations", event_id="evt-show-last-99"),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert received["limit"] == 10
+    assert captured["text"] == "I don’t have any recent conversations for you yet."
+
+
+def test_normal_chat_message(monkeypatch):
+    slack_route.processed_event_ids.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Hello back")
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("hello bishop", event_id="evt-chat"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert captured["text"] == "Hello back"
