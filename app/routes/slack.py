@@ -35,6 +35,24 @@ MAX_PROCESSED_EVENT_IDS = 1000
 MESSAGE_DEDUPE_WINDOW_SECONDS = 8
 MESSAGE_DEDUPE_CACHE_LIMIT = 1000
 
+SHORT_FOLLOWUP_MESSAGES = {
+    "yes",
+    "yes please",
+    "yes please!",
+    "yep",
+    "yeah",
+    "sure",
+    "sure!",
+    "go ahead",
+    "please do",
+    "do it",
+    "more",
+    "3 more",
+    "three more",
+    "ok",
+    "okay",
+}
+
 
 def post_message(channel: str, text: str):
     if not settings.SLACK_BOT_TOKEN:
@@ -161,6 +179,70 @@ def get_requested_conversation_limit(lowered: str) -> int | None:
     if requested_limit > 10:
         return 10
     return requested_limit
+
+
+def is_short_followup_message(user_text: str) -> bool:
+    normalized = normalize_message_for_dedupe(user_text)
+    return normalized in SHORT_FOLLOWUP_MESSAGES
+
+
+def assistant_invited_followup(assistant_response: str) -> bool:
+    lowered = (assistant_response or "").strip().lower()
+
+    followup_signals = [
+        "want 3 more",
+        "want three more",
+        "want more",
+        "want another",
+        "want a sharper",
+        "want a darker",
+        "want one",
+        "want me to",
+        "if you want",
+        "i can make them",
+        "i can make them:",
+        "i can make them",
+        "i can make them more",
+        "i can",
+    ]
+
+    return any(signal in lowered for signal in followup_signals)
+
+
+def expand_short_followup_message(user_id: str, user_text: str) -> str:
+    if not is_short_followup_message(user_text):
+        return user_text
+
+    items = get_recent_conversations_for_user(
+        user_id=user_id,
+        limit=1,
+        platform="slack",
+        exclude_utility_commands=True,
+        fetch_limit=10,
+    )
+
+    if not items:
+        return user_text
+
+    previous_item = items[0]
+    previous_user_message = (previous_item.get("user_message") or "").strip()
+    previous_assistant_response = (previous_item.get("assistant_response") or "").strip()
+
+    if not previous_user_message or not previous_assistant_response:
+        return user_text
+
+    if not assistant_invited_followup(previous_assistant_response):
+        return user_text
+
+    return (
+        "You are continuing a Slack conversation.\n\n"
+        f"User's previous message: {previous_user_message}\n"
+        f"Your previous reply: {previous_assistant_response}\n"
+        f"User's new reply: {user_text}\n\n"
+        "Treat the new reply as a short follow-up to the previous exchange. "
+        "Directly fulfill the implied request instead of asking what the user wants, "
+        "if the previous assistant message already offered a clear next step."
+    )
 
 
 @router.post("/slack/events")
@@ -515,7 +597,8 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         else:
-            response_text = generate_reply(user_id=user_id, message=user_text)
+            effective_message = expand_short_followup_message(user_id=user_id, user_text=user_text)
+            response_text = generate_reply(user_id=user_id, message=effective_message)
             effective_provider = get_effective_provider()
 
             if effective_provider == "claude":

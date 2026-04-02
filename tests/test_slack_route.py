@@ -153,6 +153,85 @@ def test_skips_near_duplicate_message_ignores_trailing_punctuation(monkeypatch):
     assert len(post_calls) == 1
 
 
+def test_expands_short_followup_when_previous_reply_invited_it(monkeypatch):
+    slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Here are 3 more jokes."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_recent_conversations_for_user",
+        lambda **kwargs: [
+            {
+                "user_message": "tell me a joke about ad agencies",
+                "assistant_response": "Sure. Want 3 more?",
+            }
+        ],
+    )
+
+    response = client.post("/slack/events", json=make_event("yes please", event_id="evt-followup-1"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert "You are continuing a Slack conversation." in captured["message_to_model"]
+    assert "User's previous message: tell me a joke about ad agencies" in captured["message_to_model"]
+    assert "Your previous reply: Sure. Want 3 more?" in captured["message_to_model"]
+    assert "User's new reply: yes please" in captured["message_to_model"]
+    assert captured["text"] == "Here are 3 more jokes."
+
+
+def test_does_not_expand_short_followup_without_previous_invitation(monkeypatch):
+    slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
+
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Normal reply"
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_recent_conversations_for_user",
+        lambda **kwargs: [
+            {
+                "user_message": "hello",
+                "assistant_response": "Hi there.",
+            }
+        ],
+    )
+
+    response = client.post("/slack/events", json=make_event("yes please", event_id="evt-followup-2"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert captured["message_to_model"] == "yes please"
+    assert captured["text"] == "Normal reply"
+
+
 def test_help_command(monkeypatch):
     slack_route.processed_event_ids.clear()
     slack_route.recent_message_fingerprints.clear()
