@@ -1,10 +1,7 @@
 import re
-from openai import OpenAI
-from app.config import settings
 from app.services.memory_service import search_memories
 from app.services.mode_service import get_mode
-
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+from app.services.provider_service import generate_text
 
 
 def extract_queries(message: str) -> list[str]:
@@ -74,9 +71,6 @@ def get_mode_system_prompt(mode: str) -> str:
 
 
 def generate_reply(user_id: str, message: str) -> str:
-    if not settings.OPENAI_API_KEY:
-        return "I’m missing an OpenAI API key."
-
     mode = get_mode(user_id)
     memory_context = generate_memory_context(user_id=user_id, message=message)
     system_prompt = get_mode_system_prompt(mode)
@@ -92,12 +86,4 @@ User message:
 {message}
 """.strip()
 
-    response = client.responses.create(
-        model=settings.OPENAI_MODEL,
-        input=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-
-    return response.output_text.strip()
+    return generate_text(system_prompt=system_prompt, user_prompt=user_prompt).strip()

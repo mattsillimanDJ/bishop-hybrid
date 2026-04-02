@@ -308,8 +308,8 @@ async def slack_events(request: Request):
             assistant_response=reply_text,
             memory_used=True,
             mode=current_mode,
-            provider="openai",
-            model=settings.OPENAI_MODEL,
+            provider=settings.LLM_PROVIDER,
+            model=settings.OPENAI_MODEL if settings.LLM_PROVIDER == "openai" else settings.ANTHROPIC_MODEL,
         )
 
         return {"ok": True}
