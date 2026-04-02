@@ -271,6 +271,8 @@ async def slack_events(request: Request):
                 user_id=user_id,
                 limit=limit,
                 platform="slack",
+                exclude_utility_commands=True,
+                fetch_limit=50,
             )
             response_text = format_recent_conversations_for_slack(items)
 

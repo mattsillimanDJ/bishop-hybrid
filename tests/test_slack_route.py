@@ -275,22 +275,38 @@ def test_show_recent_conversations_command(monkeypatch):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
 
+    received = {}
+
+    def fake_get_recent_conversations_for_user(
+        user_id,
+        limit,
+        platform,
+        exclude_utility_commands,
+        fetch_limit,
+    ):
+        received["user_id"] = user_id
+        received["limit"] = limit
+        received["platform"] = platform
+        received["exclude_utility_commands"] = exclude_utility_commands
+        received["fetch_limit"] = fetch_limit
+        return [
+            {
+                "created_at": "2026-04-02T14:30:00+00:00",
+                "user_message": "tell me about the vendor plan",
+                "assistant_response": "Here is the vendor plan summary",
+            },
+            {
+                "created_at": "2026-04-02T14:25:00+00:00",
+                "user_message": "mode work",
+                "assistant_response": "Mode set to work.",
+            },
+        ]
+
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(
         slack_route,
         "get_recent_conversations_for_user",
-        lambda user_id, limit, platform: [
-            {
-                "created_at": "2026-04-02T14:30:00+00:00",
-                "user_message": "status",
-                "assistant_response": "Bishop status output",
-            },
-            {
-                "created_at": "2026-04-02T14:25:00+00:00",
-                "user_message": "show mode",
-                "assistant_response": "Current mode: work",
-            },
-        ],
+        fake_get_recent_conversations_for_user,
     )
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
@@ -302,10 +318,16 @@ def test_show_recent_conversations_command(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+    assert received == {
+        "user_id": "U123",
+        "limit": 5,
+        "platform": "slack",
+        "exclude_utility_commands": True,
+        "fetch_limit": 50,
+    }
     assert "Here are your recent conversations:" in captured["text"]
-    assert "You: status" in captured["text"]
-    assert "Bishop: Bishop status output" in captured["text"]
-    assert "You: show mode" in captured["text"]
+    assert "You: tell me about the vendor plan" in captured["text"]
+    assert "Bishop: Here is the vendor plan summary" in captured["text"]
 
 
 def test_show_last_5_conversations_command(monkeypatch):
@@ -319,10 +341,18 @@ def test_show_last_5_conversations_command(monkeypatch):
 
     received = {}
 
-    def fake_get_recent_conversations_for_user(user_id, limit, platform):
+    def fake_get_recent_conversations_for_user(
+        user_id,
+        limit,
+        platform,
+        exclude_utility_commands,
+        fetch_limit,
+    ):
         received["user_id"] = user_id
         received["limit"] = limit
         received["platform"] = platform
+        received["exclude_utility_commands"] = exclude_utility_commands
+        received["fetch_limit"] = fetch_limit
         return []
 
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
@@ -341,7 +371,13 @@ def test_show_last_5_conversations_command(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
-    assert received == {"user_id": "U123", "limit": 5, "platform": "slack"}
+    assert received == {
+        "user_id": "U123",
+        "limit": 5,
+        "platform": "slack",
+        "exclude_utility_commands": True,
+        "fetch_limit": 50,
+    }
     assert captured["text"] == "I don’t have any recent conversations for you yet."
 
 
@@ -356,7 +392,13 @@ def test_show_last_conversations_caps_at_10(monkeypatch):
 
     received = {}
 
-    def fake_get_recent_conversations_for_user(user_id, limit, platform):
+    def fake_get_recent_conversations_for_user(
+        user_id,
+        limit,
+        platform,
+        exclude_utility_commands,
+        fetch_limit,
+    ):
         received["limit"] = limit
         return []
 
