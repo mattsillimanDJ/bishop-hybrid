@@ -17,6 +17,8 @@ from app.services.mode_service import get_mode, set_mode, VALID_MODES
 from app.services.provider_state_service import (
     get_provider_override,
     get_effective_provider,
+    set_provider_override,
+    clear_provider_override,
 )
 
 router = APIRouter()
@@ -54,6 +56,9 @@ def help_text() -> str:
         "• mode personal\n"
         "• show mode\n"
         "• show provider\n"
+        "• provider openai\n"
+        "• provider claude\n"
+        "• provider default\n"
         "• help\n\n"
         "Or just mention me normally and I’ll reply."
     )
@@ -275,6 +280,50 @@ async def slack_events(request: Request):
                     f"Effective provider: {effective}\n"
                     f"Override: none\n"
                     f"Railway default: {default_provider}"
+                )
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
+                mode=get_mode(user_id),
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        elif lowered.startswith("provider "):
+            requested_provider = lowered.replace("provider ", "", 1).strip()
+
+            if requested_provider == "openai":
+                if not settings.OPENAI_API_KEY:
+                    response_text = "OpenAI is not configured. Missing OPENAI_API_KEY."
+                else:
+                    set_provider_override("openai")
+                    response_text = "Provider override set to openai."
+
+            elif requested_provider == "claude":
+                if not settings.ANTHROPIC_API_KEY:
+                    response_text = "Claude is not configured. Missing ANTHROPIC_API_KEY."
+                else:
+                    set_provider_override("claude")
+                    response_text = "Provider override set to claude."
+
+            elif requested_provider == "default":
+                clear_provider_override()
+                response_text = (
+                    f"Provider override cleared. Using Railway default: {settings.LLM_PROVIDER}"
+                )
+
+            else:
+                response_text = (
+                    "Unknown provider. Use: provider openai, provider claude, or provider default."
                 )
 
             post_message(channel_id, response_text)
