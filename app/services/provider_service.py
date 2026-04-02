@@ -4,13 +4,52 @@ from openai import OpenAI
 from app.config import settings
 
 
-def generate_text(provider: str, system_prompt: str, user_prompt: str) -> str:
+VALID_PROVIDERS = {"openai", "claude"}
+
+
+def get_provider_model(provider: str) -> str | None:
     provider = (provider or settings.LLM_PROVIDER).lower()
 
     if provider == "openai":
-        if not settings.OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY is not set")
+        return settings.OPENAI_MODEL or None
 
+    if provider == "claude":
+        return settings.ANTHROPIC_MODEL or None
+
+    return None
+
+
+def validate_provider_config(provider: str) -> tuple[bool, str]:
+    provider = (provider or "").strip().lower()
+
+    if provider not in VALID_PROVIDERS:
+        return False, f"Unsupported provider: {provider}"
+
+    if provider == "openai":
+        if not settings.OPENAI_API_KEY:
+            return False, "OPENAI_API_KEY is not set"
+        if not settings.OPENAI_MODEL:
+            return False, "OPENAI_MODEL is not set"
+        return True, "OpenAI configuration looks valid"
+
+    if provider == "claude":
+        if not settings.ANTHROPIC_API_KEY:
+            return False, "ANTHROPIC_API_KEY is not set"
+        if not settings.ANTHROPIC_MODEL:
+            return False, "ANTHROPIC_MODEL is not set"
+        return True, "Claude configuration looks valid"
+
+    return False, f"Unsupported provider: {provider}"
+
+
+def generate_text(provider: str, system_prompt: str, user_prompt: str) -> str:
+    provider = (provider or settings.LLM_PROVIDER).lower()
+
+    is_valid, validation_message = validate_provider_config(provider)
+    if not is_valid:
+        raise ValueError(validation_message)
+
+    if provider == "openai":
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
         response = client.chat.completions.create(
@@ -20,12 +59,14 @@ def generate_text(provider: str, system_prompt: str, user_prompt: str) -> str:
                 {"role": "user", "content": user_prompt},
             ],
         )
-        return response.choices[0].message.content.strip()
+
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("OpenAI returned an empty response")
+
+        return content.strip()
 
     if provider == "claude":
-        if not settings.ANTHROPIC_API_KEY:
-            raise ValueError("ANTHROPIC_API_KEY is not set")
-
         try:
             client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
@@ -43,11 +84,14 @@ def generate_text(provider: str, system_prompt: str, user_prompt: str) -> str:
                 if getattr(block, "type", None) == "text":
                     text_parts.append(block.text)
 
-            return "".join(text_parts).strip()
+            combined = "".join(text_parts).strip()
+            if not combined:
+                raise ValueError("Claude returned an empty response")
+
+            return combined
 
         except Exception as e:
             print(f"[Bishop Claude Error] {type(e).__name__}: {str(e)}")
-            raise
+            raise ValueError(f"Claude request failed: {str(e)}") from e
 
     raise ValueError(f"Unsupported provider: {provider}")
-

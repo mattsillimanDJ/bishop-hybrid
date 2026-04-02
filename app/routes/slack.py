@@ -18,6 +18,10 @@ from app.services.conversation_log_service import (
     get_recent_conversations_for_user,
 )
 from app.services.mode_service import get_mode, set_mode, VALID_MODES
+from app.services.provider_service import (
+    get_provider_model,
+    validate_provider_config,
+)
 from app.services.provider_state_service import (
     get_provider_override,
     get_effective_provider,
@@ -198,12 +202,9 @@ def assistant_invited_followup(assistant_response: str) -> bool:
         "want a darker",
         "want one",
         "want me to",
-        "if you want",
         "i can make them",
         "i can make them:",
-        "i can make them",
         "i can make them more",
-        "i can",
     ]
 
     return any(signal in lowered for signal in followup_signals)
@@ -481,10 +482,8 @@ async def slack_events(request: Request):
             effective_provider = get_effective_provider()
             default_provider = settings.LLM_PROVIDER
 
-            openai_key_configured = "yes" if settings.OPENAI_API_KEY else "no"
-            anthropic_key_configured = "yes" if settings.ANTHROPIC_API_KEY else "no"
-            openai_model = settings.OPENAI_MODEL or "not set"
-            anthropic_model = settings.ANTHROPIC_MODEL or "not set"
+            openai_ok, openai_message = validate_provider_config("openai")
+            claude_ok, claude_message = validate_provider_config("claude")
 
             response_text = (
                 "*Bishop Status*\n\n"
@@ -492,10 +491,10 @@ async def slack_events(request: Request):
                 f"*Effective provider:* {effective_provider}\n"
                 f"*Provider override:* {provider_override or 'none'}\n"
                 f"*Railway default provider:* {default_provider}\n\n"
-                f"*OpenAI key configured:* {openai_key_configured}\n"
-                f"*Anthropic key configured:* {anthropic_key_configured}\n\n"
-                f"*OpenAI model:* {openai_model}\n"
-                f"*Anthropic model:* {anthropic_model}"
+                f"*OpenAI model:* {get_provider_model('openai') or 'not set'}\n"
+                f"*Claude model:* {get_provider_model('claude') or 'not set'}\n\n"
+                f"*OpenAI config:* {'ok' if openai_ok else openai_message}\n"
+                f"*Claude config:* {'ok' if claude_ok else claude_message}"
             )
 
             post_message(channel_id, response_text)
@@ -544,17 +543,21 @@ async def slack_events(request: Request):
         elif lowered.startswith("provider "):
             requested_provider = lowered.replace("provider ", "", 1).strip()
 
-            if requested_provider == "openai":
-                set_provider_override("openai")
-                response_text = "Provider override set to openai."
-
-            elif requested_provider == "claude":
-                set_provider_override("claude")
-                response_text = "Provider override set to claude."
-
-            elif requested_provider == "default":
+            if requested_provider == "default":
                 clear_provider_override()
                 response_text = "Provider override cleared. Falling back to Railway default."
+
+            elif requested_provider in {"openai", "claude"}:
+                is_valid, validation_message = validate_provider_config(requested_provider)
+
+                if not is_valid:
+                    response_text = (
+                        f"Could not switch provider to {requested_provider}. "
+                        f"{validation_message}"
+                    )
+                else:
+                    set_provider_override(requested_provider)
+                    response_text = f"Provider override set to {requested_provider}."
 
             else:
                 response_text = (
@@ -600,11 +603,7 @@ async def slack_events(request: Request):
             effective_message = expand_short_followup_message(user_id=user_id, user_text=user_text)
             response_text = generate_reply(user_id=user_id, message=effective_message)
             effective_provider = get_effective_provider()
-
-            if effective_provider == "claude":
-                model_name = settings.ANTHROPIC_MODEL or None
-            else:
-                model_name = settings.OPENAI_MODEL or None
+            model_name = get_provider_model(effective_provider)
 
             post_message(channel_id, response_text)
 
