@@ -98,6 +98,35 @@ async def slack_events(request: Request):
     try:
         current_mode = get_mode(user_id)
 
+        if lower_text == "help":
+            reply_text = (
+                "Here’s what I can do:\n"
+                "- remember [something]\n"
+                "- recall [topic]\n"
+                "- forget [topic]\n"
+                "- show memory\n"
+                "- mode default\n"
+                "- mode work\n"
+                "- mode personal\n"
+                "- show mode\n"
+                "- or just ask me a normal question"
+            )
+            post_message(channel_id, reply_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=reply_text,
+                memory_used=False,
+                mode="help_command",
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
         if lower_text.startswith("remember "):
             memory_text = user_text[9:].strip()
 
