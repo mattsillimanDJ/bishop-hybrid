@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -12,6 +14,10 @@ from app.services.memory_service import (
 from app.services.chat_service import generate_reply
 from app.services.conversation_log_service import log_conversation
 from app.services.mode_service import get_mode, set_mode, VALID_MODES
+from app.services.provider_state_service import (
+    get_provider_override,
+    get_effective_provider,
+)
 
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
@@ -26,38 +32,58 @@ def post_message(channel: str, text: str):
 
     try:
         response = slack_client.chat_postMessage(channel=channel, text=text)
-        return {"ok": response["ok"]}
+        return {"ok": True, "ts": response.get("ts")}
     except SlackApiError as e:
-        error_message = e.response.get("error", "unknown_slack_error")
-        print(f"Slack API error: {error_message}")
-        return {"ok": False, "error": error_message}
+        print(f"Slack API error: {e.response['error']}")
+        return {"ok": False, "error": e.response["error"]}
+
+
+def strip_app_mention(text: str) -> str:
+    return re.sub(r"<@[^>]+>", "", text).strip()
+
+
+def help_text() -> str:
+    return (
+        "Here are the commands I understand:\n"
+        "• remember ...\n"
+        "• recall ...\n"
+        "• forget ...\n"
+        "• show memory\n"
+        "• mode default\n"
+        "• mode work\n"
+        "• mode personal\n"
+        "• show mode\n"
+        "• show provider\n"
+        "• help\n\n"
+        "Or just mention me normally and I’ll reply."
+    )
 
 
 @router.post("/slack/events")
 async def slack_events(request: Request):
-    retry_num = request.headers.get("x-slack-retry-num")
-    retry_reason = request.headers.get("x-slack-retry-reason")
+    body = await request.json()
 
-    if retry_num is not None:
-        print(f"Ignoring Slack retry #{retry_num}, reason: {retry_reason}")
-        return {"ok": True}
+    if body.get("type") == "url_verification":
+        return {"challenge": body.get("challenge")}
 
-    payload = await request.json()
-
-    if payload.get("type") == "url_verification":
-        return {"challenge": payload.get("challenge")}
-
-    event_id = payload.get("event_id")
+    event_id = body.get("event_id")
     if event_id:
         if event_id in processed_event_ids:
-            print(f"Ignoring duplicate Slack event: {event_id}")
+            print(f"Skipping duplicate Slack event_id: {event_id}")
             return {"ok": True}
         processed_event_ids.add(event_id)
 
-    event = payload.get("event", {})
+        if len(processed_event_ids) > 1000:
+            processed_event_ids.pop()
 
-    if not event:
+    if request.headers.get("x-slack-retry-num"):
+        print("Skipping Slack retry event")
         return {"ok": True}
+
+    if body.get("type") != "event_callback":
+        return {"ok": True}
+
+    event = body.get("event", {})
 
     if event.get("type") != "app_mention":
         return {"ok": True}
@@ -65,114 +91,26 @@ async def slack_events(request: Request):
     if event.get("bot_id"):
         return {"ok": True}
 
-    channel_id = event.get("channel")
     user_id = event.get("user")
-    raw_text = (event.get("text") or "").strip()
+    channel_id = event.get("channel")
+    raw_text = event.get("text", "")
+    user_text = strip_app_mention(raw_text)
 
-    if not channel_id or not raw_text:
+    if not user_id or not channel_id or not user_text:
         return {"ok": True}
-
-    parts = raw_text.split(maxsplit=1)
-    user_text = parts[1].strip() if len(parts) > 1 else ""
-
-    if not user_text:
-        reply_text = "Say something after mentioning me."
-        post_message(channel_id, reply_text)
-
-        log_conversation(
-            platform="slack",
-            user_id=user_id,
-            channel_id=channel_id,
-            session_id=channel_id,
-            user_message=raw_text,
-            assistant_response=reply_text,
-            memory_used=False,
-            mode="default",
-            provider="system",
-            model=None,
-        )
-        return {"ok": True}
-
-    lower_text = user_text.lower()
 
     try:
-        current_mode = get_mode(user_id)
+        lowered = user_text.lower().strip()
 
-        if lower_text == "help":
-            reply_text = (
-                "Here’s what I can do:\n"
-                "- remember [something]\n"
-                "- recall [topic]\n"
-                "- forget [topic]\n"
-                "- show memory\n"
-                "- mode default\n"
-                "- mode work\n"
-                "- mode personal\n"
-                "- show mode\n"
-                "- or just ask me a normal question"
-            )
-            post_message(channel_id, reply_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=reply_text,
-                memory_used=False,
-                mode="help_command",
-                provider="system",
-                model=None,
-            )
-            return {"ok": True}
-
-        if lower_text.startswith("remember "):
+        if lowered.startswith("remember "):
             memory_text = user_text[9:].strip()
-
             if not memory_text:
-                reply_text = "Tell me what to remember."
+                response_text = "Please tell me what to remember."
             else:
-                result = add_memory(user_id=user_id, content=memory_text)
-                reply_text = str(result)
+                add_memory(user_id=user_id, content=memory_text)
+                response_text = f"Got it. I’ll remember: {memory_text}"
 
-            post_message(channel_id, reply_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=reply_text,
-                memory_used=False,
-                mode="memory_command",
-                provider="system",
-                model=None,
-            )
-            return {"ok": True}
-
-        if lower_text == "show memory":
-            memories = get_memories(user_id=user_id)
-
-            if not memories:
-                reply_text = "I do not have any memories saved yet."
-            else:
-                lines = []
-                for memory in memories[:20]:
-                    if isinstance(memory, dict):
-                        value = (
-                            memory.get("content")
-                            or memory.get("memory")
-                            or memory.get("text")
-                            or str(memory)
-                        )
-                    else:
-                        value = str(memory)
-                    lines.append(f"- {value}")
-                reply_text = "Here’s what I remember:\n" + "\n".join(lines)
-
-            post_message(channel_id, reply_text)
+            post_message(channel_id, response_text)
 
             log_conversation(
                 platform="slack",
@@ -180,82 +118,27 @@ async def slack_events(request: Request):
                 channel_id=channel_id,
                 session_id=channel_id,
                 user_message=user_text,
-                assistant_response=reply_text,
+                assistant_response=response_text,
                 memory_used=False,
-                mode="memory_command",
+                mode=get_mode(user_id),
                 provider="system",
                 model=None,
             )
             return {"ok": True}
 
-        if lower_text == "show mode":
-            reply_text = f"Current mode: {current_mode}"
-            post_message(channel_id, reply_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=reply_text,
-                memory_used=False,
-                mode="mode_command",
-                provider="system",
-                model=None,
-            )
-            return {"ok": True}
-
-        if lower_text.startswith("mode "):
-            requested_mode = lower_text.replace("mode ", "", 1).strip()
-
-            if requested_mode not in VALID_MODES:
-                reply_text = "Invalid mode. Use: default, work, or personal."
-            else:
-                set_mode(user_id, requested_mode)
-                reply_text = f"Mode set to {requested_mode}."
-
-            post_message(channel_id, reply_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=reply_text,
-                memory_used=False,
-                mode="mode_command",
-                provider="system",
-                model=None,
-            )
-            return {"ok": True}
-
-        if lower_text.startswith("recall "):
+        elif lowered.startswith("recall "):
             query = user_text[7:].strip()
-
             if not query:
-                reply_text = "Tell me what you want me to recall."
+                response_text = "Please tell me what you want me to recall."
             else:
-                matches = search_memories(user_id=user_id, query=query, limit=10)
-                if not matches:
-                    reply_text = f"I couldn’t find anything about '{query}'."
+                results = search_memories(user_id=user_id, query=query, limit=5)
+                if results:
+                    lines = [f"• {item['content']}" for item in results]
+                    response_text = "Here’s what I found:\n" + "\n".join(lines)
                 else:
-                    lines = []
-                    for match in matches[:10]:
-                        if isinstance(match, dict):
-                            value = (
-                                match.get("content")
-                                or match.get("memory")
-                                or match.get("text")
-                                or str(match)
-                            )
-                        else:
-                            value = str(match)
-                        lines.append(f"- {value}")
-                    reply_text = f"Here’s what I found about '{query}':\n" + "\n".join(lines)
+                    response_text = "I couldn’t find anything matching that."
 
-            post_message(channel_id, reply_text)
+            post_message(channel_id, response_text)
 
             log_conversation(
                 platform="slack",
@@ -263,24 +146,32 @@ async def slack_events(request: Request):
                 channel_id=channel_id,
                 session_id=channel_id,
                 user_message=user_text,
-                assistant_response=reply_text,
+                assistant_response=response_text,
                 memory_used=True,
-                mode="memory_command",
+                mode=get_mode(user_id),
                 provider="system",
                 model=None,
             )
             return {"ok": True}
 
-        if lower_text.startswith("forget "):
+        elif lowered.startswith("forget "):
             query = user_text[7:].strip()
-
             if not query:
-                reply_text = "Tell me what you want me to forget."
+                response_text = "Please tell me what you want me to forget."
             else:
-                result = delete_memory_by_query(user_id=user_id, query=query)
-                reply_text = str(result)
+                deleted = delete_memory_by_query(user_id=user_id, query=query)
 
-            post_message(channel_id, reply_text)
+                if isinstance(deleted, int):
+                    if deleted > 0:
+                        response_text = f"Forgot {deleted} memory item(s) matching: {query}"
+                    else:
+                        response_text = f"I couldn’t find anything to forget for: {query}"
+                elif deleted:
+                    response_text = f"Forgot memory matching: {query}"
+                else:
+                    response_text = f"I couldn’t find anything to forget for: {query}"
+
+            post_message(channel_id, response_text)
 
             log_conversation(
                 platform="slack",
@@ -288,31 +179,157 @@ async def slack_events(request: Request):
                 channel_id=channel_id,
                 session_id=channel_id,
                 user_message=user_text,
-                assistant_response=reply_text,
+                assistant_response=response_text,
                 memory_used=False,
-                mode="memory_command",
+                mode=get_mode(user_id),
                 provider="system",
                 model=None,
             )
             return {"ok": True}
 
-        reply_text = generate_reply(user_id=user_id, message=user_text)
-        post_message(channel_id, reply_text)
+        elif lowered == "show memory":
+            memories = get_memories(user_id=user_id, limit=20)
+            if memories:
+                lines = [f"• {item['content']}" for item in memories]
+                response_text = "Here’s what I remember:\n" + "\n".join(lines)
+            else:
+                response_text = "I don’t have any saved memory yet."
 
-        log_conversation(
-            platform="slack",
-            user_id=user_id,
-            channel_id=channel_id,
-            session_id=channel_id,
-            user_message=user_text,
-            assistant_response=reply_text,
-            memory_used=True,
-            mode=current_mode,
-            provider=settings.LLM_PROVIDER,
-            model=settings.OPENAI_MODEL if settings.LLM_PROVIDER == "openai" else settings.ANTHROPIC_MODEL,
-        )
+            post_message(channel_id, response_text)
 
-        return {"ok": True}
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=True,
+                mode=get_mode(user_id),
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        elif lowered.startswith("mode "):
+            requested_mode = lowered.replace("mode ", "", 1).strip()
+
+            if requested_mode in VALID_MODES:
+                set_mode(user_id, requested_mode)
+                response_text = f"Mode set to {requested_mode}."
+            else:
+                response_text = (
+                    "Unknown mode. Available modes: "
+                    + ", ".join(sorted(VALID_MODES))
+                )
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
+                mode=get_mode(user_id),
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        elif lowered == "show mode":
+            current_mode = get_mode(user_id)
+            response_text = f"Current mode: {current_mode}"
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
+                mode=current_mode,
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        elif lowered == "show provider":
+            override = get_provider_override()
+            effective = get_effective_provider()
+            default_provider = settings.LLM_PROVIDER
+
+            if override:
+                response_text = (
+                    f"Effective provider: {effective}\n"
+                    f"Override: {override}\n"
+                    f"Railway default: {default_provider}"
+                )
+            else:
+                response_text = (
+                    f"Effective provider: {effective}\n"
+                    f"Override: none\n"
+                    f"Railway default: {default_provider}"
+                )
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
+                mode=get_mode(user_id),
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        elif lowered == "help":
+            response_text = help_text()
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
+                mode=get_mode(user_id),
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        else:
+            response_text = generate_reply(user_id=user_id, message=user_text)
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=True,
+                mode=get_mode(user_id),
+                provider=get_effective_provider(),
+                model=None,
+            )
+            return {"ok": True}
 
     except Exception as e:
         error_text = f"Something went wrong: {str(e)}"

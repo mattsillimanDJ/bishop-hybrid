@@ -7,6 +7,7 @@ from app.routes.conversations import router as conversations_router
 from app.services.memory_service import init_db, seed_memory
 from app.services.conversation_log_service import init_conversation_log_table
 from app.services.mode_service import init_mode_table
+from app.services.provider_state_service import init_provider_table
 
 app = FastAPI(title=settings.APP_NAME)
 
@@ -21,13 +22,6 @@ def startup_event():
     init_db()
     init_conversation_log_table()
     init_mode_table()
+    init_provider_table()
     result = seed_memory()
     print(f"Memory startup: {result}")
-
-
-@app.get("/")
-def root():
-    return {
-        "message": "Bishop Hybrid is running",
-        "environment": settings.APP_ENV,
-    }

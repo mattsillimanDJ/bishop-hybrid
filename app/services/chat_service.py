@@ -2,6 +2,7 @@ import re
 from app.services.memory_service import search_memories
 from app.services.mode_service import get_mode
 from app.services.provider_service import generate_text
+from app.services.provider_state_service import get_effective_provider
 
 
 def extract_queries(message: str) -> list[str]:
@@ -74,6 +75,7 @@ def generate_reply(user_id: str, message: str) -> str:
     mode = get_mode(user_id)
     memory_context = generate_memory_context(user_id=user_id, message=message)
     system_prompt = get_mode_system_prompt(mode)
+    provider = get_effective_provider()
 
     user_prompt = f"""
 Current mode:
@@ -86,4 +88,11 @@ User message:
 {message}
 """.strip()
 
-    return generate_text(system_prompt=system_prompt, user_prompt=user_prompt).strip()
+    print(f"[Bishop] Using provider: {provider}")
+
+    return generate_text(
+        provider=provider,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    ).strip()
+
