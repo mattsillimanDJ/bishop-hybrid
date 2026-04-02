@@ -1,57 +1,47 @@
+from anthropic import Anthropic
 from openai import OpenAI
-import anthropic
 
 from app.config import settings
 
-openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-
-def generate_with_openai(system_prompt: str, user_prompt: str) -> str:
-    if not settings.OPENAI_API_KEY:
-        return "I’m missing an OpenAI API key."
-
-    response = openai_client.responses.create(
-        model=settings.OPENAI_MODEL,
-        input=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-
-    return response.output_text.strip()
-
-
-def generate_with_claude(system_prompt: str, user_prompt: str) -> str:
-    if not settings.ANTHROPIC_API_KEY:
-        return "I’m missing an Anthropic API key."
-
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-    response = client.messages.create(
-        model=settings.ANTHROPIC_MODEL,
-        max_tokens=800,
-        system=system_prompt,
-        messages=[
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-
-    parts = []
-    for block in response.content:
-        text = getattr(block, "text", None)
-        if text:
-            parts.append(text)
-
-    return "\n".join(parts).strip()
-
-
-def generate_text(system_prompt: str, user_prompt: str) -> str:
-    provider = settings.LLM_PROVIDER
-
-    if provider == "claude":
-        return generate_with_claude(system_prompt, user_prompt)
+def generate_text(provider: str, system_prompt: str, user_prompt: str) -> str:
+    provider = (provider or settings.LLM_PROVIDER).lower()
 
     if provider == "openai":
-        return generate_with_openai(system_prompt, user_prompt)
+        if not settings.OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is not set")
 
-    return f"Unsupported LLM_PROVIDER: {provider}"
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+        response = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        return response.choices[0].message.content.strip()
+
+    if provider == "claude":
+        if not settings.ANTHROPIC_API_KEY:
+            raise ValueError("ANTHROPIC_API_KEY is not set")
+
+        client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+        text_parts = []
+        for block in response.content:
+            if getattr(block, "type", None) == "text":
+                text_parts.append(block.text)
+
+        return "".join(text_parts).strip()
+
+    raise ValueError(f"Unsupported provider: {provider}")
