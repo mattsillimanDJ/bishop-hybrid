@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.config import settings
@@ -10,22 +12,24 @@ from app.services.conversation_log_service import init_conversation_log_table
 from app.services.mode_service import init_mode_table
 from app.services.provider_state_service import init_provider_table
 
-app = FastAPI(title=settings.APP_NAME)
 
-app.include_router(health_router)
-app.include_router(slack_router)
-app.include_router(memory_router)
-app.include_router(conversations_router)
-
-
-@app.on_event("startup")
-def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
     init_conversation_log_table()
     init_mode_table()
     init_provider_table()
     result = seed_memory()
     print(f"Memory startup: {result}")
+    yield
+
+
+app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+
+app.include_router(health_router)
+app.include_router(slack_router)
+app.include_router(memory_router)
+app.include_router(conversations_router)
 
 
 @app.get("/")
