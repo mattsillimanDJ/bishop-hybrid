@@ -56,6 +56,7 @@ def help_text() -> str:
         "• mode personal\n"
         "• show mode\n"
         "• show provider\n"
+        "• status\n"
         "• provider openai\n"
         "• provider claude\n"
         "• provider default\n"
@@ -264,23 +265,55 @@ async def slack_events(request: Request):
             )
             return {"ok": True}
 
-        elif lowered == "show provider":
-            override = get_provider_override()
-            effective = get_effective_provider()
+        elif lowered in {"status", "show config"}:
+            current_mode = get_mode(user_id)
+            provider_override = get_provider_override()
+            effective_provider = get_effective_provider()
             default_provider = settings.LLM_PROVIDER
 
-            if override:
-                response_text = (
-                    f"Effective provider: {effective}\n"
-                    f"Override: {override}\n"
-                    f"Railway default: {default_provider}"
-                )
-            else:
-                response_text = (
-                    f"Effective provider: {effective}\n"
-                    f"Override: none\n"
-                    f"Railway default: {default_provider}"
-                )
+            openai_key_configured = "yes" if settings.OPENAI_API_KEY else "no"
+            anthropic_key_configured = "yes" if settings.ANTHROPIC_API_KEY else "no"
+            openai_model = settings.OPENAI_MODEL or "not set"
+            anthropic_model = settings.ANTHROPIC_MODEL or "not set"
+
+            response_text = (
+                "*Bishop Status*\n\n"
+                f"*Mode:* {current_mode}\n"
+                f"*Effective provider:* {effective_provider}\n"
+                f"*Provider override:* {provider_override or 'none'}\n"
+                f"*Railway default provider:* {default_provider}\n\n"
+                f"*OpenAI key configured:* {openai_key_configured}\n"
+                f"*Anthropic key configured:* {anthropic_key_configured}\n\n"
+                f"*OpenAI model:* {openai_model}\n"
+                f"*Anthropic model:* {anthropic_model}"
+            )
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
+                mode=current_mode,
+                provider="system",
+                model=None,
+            )
+            return {"ok": True}
+
+        elif lowered == "show provider":
+            provider_override = get_provider_override()
+            effective_provider = get_effective_provider()
+            default_provider = settings.LLM_PROVIDER
+
+            response_text = (
+                f"Effective provider: {effective_provider}\n"
+                f"Override: {provider_override or 'none'}\n"
+                f"Railway default: {default_provider}"
+            )
 
             post_message(channel_id, response_text)
 
@@ -302,24 +335,16 @@ async def slack_events(request: Request):
             requested_provider = lowered.replace("provider ", "", 1).strip()
 
             if requested_provider == "openai":
-                if not settings.OPENAI_API_KEY:
-                    response_text = "OpenAI is not configured. Missing OPENAI_API_KEY."
-                else:
-                    set_provider_override("openai")
-                    response_text = "Provider override set to openai."
+                set_provider_override("openai")
+                response_text = "Provider override set to openai."
 
             elif requested_provider == "claude":
-                if not settings.ANTHROPIC_API_KEY:
-                    response_text = "Claude is not configured. Missing ANTHROPIC_API_KEY."
-                else:
-                    set_provider_override("claude")
-                    response_text = "Provider override set to claude."
+                set_provider_override("claude")
+                response_text = "Provider override set to claude."
 
             elif requested_provider == "default":
                 clear_provider_override()
-                response_text = (
-                    f"Provider override cleared. Using Railway default: {settings.LLM_PROVIDER}"
-                )
+                response_text = "Provider override cleared. Falling back to Railway default."
 
             else:
                 response_text = (
@@ -363,6 +388,12 @@ async def slack_events(request: Request):
 
         else:
             response_text = generate_reply(user_id=user_id, message=user_text)
+            effective_provider = get_effective_provider()
+
+            if effective_provider == "claude":
+                model_name = settings.ANTHROPIC_MODEL or None
+            else:
+                model_name = settings.OPENAI_MODEL or None
 
             post_message(channel_id, response_text)
 
@@ -375,15 +406,15 @@ async def slack_events(request: Request):
                 assistant_response=response_text,
                 memory_used=True,
                 mode=get_mode(user_id),
-                provider=get_effective_provider(),
-                model=None,
+                provider=effective_provider,
+                model=model_name,
             )
             return {"ok": True}
 
     except Exception as e:
-        error_text = f"Something went wrong: {str(e)}"
-        print(error_text)
-        post_message(channel_id, error_text)
+        response_text = f"Something went wrong: {str(e)}"
+        print(response_text)
+        post_message(channel_id, response_text)
 
         log_conversation(
             platform="slack",
@@ -391,11 +422,10 @@ async def slack_events(request: Request):
             channel_id=channel_id,
             session_id=channel_id,
             user_message=user_text,
-            assistant_response=error_text,
+            assistant_response=response_text,
             memory_used=False,
             mode="error",
             provider="system",
             model=None,
         )
-
         return {"ok": True}
