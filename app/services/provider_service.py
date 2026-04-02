@@ -26,22 +26,28 @@ def generate_text(provider: str, system_prompt: str, user_prompt: str) -> str:
         if not settings.ANTHROPIC_API_KEY:
             raise ValueError("ANTHROPIC_API_KEY is not set")
 
-        client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        try:
+            client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-        response = client.messages.create(
-            model=settings.ANTHROPIC_MODEL,
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": user_prompt},
-            ],
-        )
+            response = client.messages.create(
+                model=settings.ANTHROPIC_MODEL,
+                max_tokens=1024,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
 
-        text_parts = []
-        for block in response.content:
-            if getattr(block, "type", None) == "text":
-                text_parts.append(block.text)
+            text_parts = []
+            for block in response.content:
+                if getattr(block, "type", None) == "text":
+                    text_parts.append(block.text)
 
-        return "".join(text_parts).strip()
+            return "".join(text_parts).strip()
+
+        except Exception as e:
+            print(f"[Bishop Claude Error] {type(e).__name__}: {str(e)}")
+            raise
 
     raise ValueError(f"Unsupported provider: {provider}")
+
