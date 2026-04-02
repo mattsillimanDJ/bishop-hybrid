@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+
 from app.config import settings
 from app.routes.health import router as health_router
 from app.routes.slack import router as slack_router
@@ -25,3 +26,11 @@ def startup_event():
     init_provider_table()
     result = seed_memory()
     print(f"Memory startup: {result}")
+
+
+@app.get("/")
+def root():
+    return {
+        "message": "Bishop Hybrid is running",
+        "environment": settings.APP_ENV,
+    }
