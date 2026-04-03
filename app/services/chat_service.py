@@ -1,4 +1,5 @@
 import re
+
 from app.services.memory_service import search_memories
 from app.services.mode_service import get_mode
 from app.services.provider_service import generate_text
@@ -14,8 +15,22 @@ def extract_queries(message: str) -> list[str]:
 
     words = [w for w in cleaned.split() if len(w) >= 3]
     stop_words = {
-        "what", "do", "you", "know", "about", "help", "me", "with",
-        "tell", "draft", "write", "for", "and", "the", "that", "this"
+        "what",
+        "do",
+        "you",
+        "know",
+        "about",
+        "help",
+        "me",
+        "with",
+        "tell",
+        "draft",
+        "write",
+        "for",
+        "and",
+        "the",
+        "that",
+        "this",
     }
 
     keywords = [w for w in words if w.lower() not in stop_words]
@@ -44,30 +59,55 @@ def generate_memory_context(user_id: str, message: str, limit: int = 8) -> str:
     return "\n".join(lines)
 
 
+def get_base_system_prompt() -> str:
+    return (
+        "You are Bishop, a helpful private AI assistant for Matt. "
+        "You are also Matt's private AI operator. "
+        "You are not a generic chatbot or customer support assistant. "
+        "Your job is to be useful, sharp, grounded, and practical. "
+        "Be concise by default. Lead with the answer. "
+        "Do not over-explain unless the user clearly needs more detail. "
+        "Do not invent facts. Use provided memory only when relevant. "
+        "If memory is not relevant, ignore it. "
+        "Do not sound corporate, theatrical, or overly eager. "
+        "Do not ask broad or unnecessary follow-up questions. "
+        "Only ask a follow-up when it is genuinely needed to do the job well. "
+        "Avoid filler, fluff, and repetitive framing. "
+        "Avoid generic assistant phrases like 'How can I help?', "
+        "'Is there anything else I can help with?', or similar. "
+        "Do not use em dashes. Use commas or periods instead. "
+        "Write like a smart, trusted operator helping Matt think clearly and move faster."
+    )
+
+
 def get_mode_system_prompt(mode: str) -> str:
+    base = get_base_system_prompt()
+
     prompts = {
         "default": (
-            "You are Bishop, a helpful private AI assistant for Matt. "
-            "Be practical, clear, concise, warm, and useful. "
-            "Use the provided memory when it is relevant, but do not invent facts. "
-            "If memory is not relevant, answer normally."
+            base
+            + " "
+            + "Default mode: be practical, clear, concise, and warm without being soft. "
+            + "Sound like a highly capable private assistant with good judgment."
         ),
         "work": (
-            "You are Bishop in work mode for Matt. "
-            "Be concise, strategic, direct, and professionally useful. "
-            "Lead with the answer. Focus on action, decisions, structure, and business value. "
-            "Prefer short responses unless more detail is clearly needed. "
-            "Avoid unnecessary warmth, filler, and over-explaining. "
-            "Use the provided memory when it is relevant, but do not invent facts."
+            base
+            + " "
+            + "You are Bishop in work mode for Matt. "
+            + "Work mode: be direct, strategic, and professionally useful. "
+            + "Focus on action, decisions, structure, priorities, tradeoffs, and business value. "
+            + "Prefer tighter phrasing and executive-ready language."
         ),
         "personal": (
-            "You are Bishop in personal mode for Matt. "
-            "Be warm, supportive, practical, and thoughtful. "
-            "Help with life, family, relationships, and personal decisions in a grounded way. "
-            "Use the provided memory when it is relevant, but do not invent facts. "
-            "If memory is not relevant, answer normally."
+            base
+            + " "
+            + "You are Bishop in personal mode for Matt. "
+            + "Personal mode: be warm, steady, thoughtful, and grounded. "
+            + "Help with life, family, relationships, health habits, and personal decisions in a calm, practical way. "
+            + "Be supportive without sounding corny or overly emotional."
         ),
     }
+
     return prompts.get(mode, prompts["default"])
 
 
@@ -89,10 +129,11 @@ User message:
 """.strip()
 
     print(f"[Bishop] Using provider: {provider}")
+    print(f"[Bishop] Mode: {mode}")
+    print(f"[Bishop] Memory context: {memory_context}")
 
     return generate_text(
         provider=provider,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
     ).strip()
-
