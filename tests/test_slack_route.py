@@ -16,6 +16,7 @@ def make_event(text: str, event_id: str = "evt-1", user_id: str = "U123", channe
             "user": user_id,
             "channel": channel_id,
             "text": f"<@BOT> {text}",
+            "ts": "123.456",
         },
     }
 
@@ -41,7 +42,12 @@ def test_ignores_non_app_mention():
         json={
             "type": "event_callback",
             "event_id": "evt-non-mention",
-            "event": {"type": "message", "user": "U123", "channel": "C123", "text": "hello"},
+            "event": {
+                "type": "message",
+                "user": "U123",
+                "channel": "C123",
+                "text": "hello",
+            },
         },
     )
     assert response.status_code == 200
@@ -89,6 +95,9 @@ def test_skips_duplicate_event_id(monkeypatch):
 
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Hello back")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
     first = client.post("/slack/events", json=make_event("hello", event_id="evt-dup"))
@@ -114,6 +123,7 @@ def test_skips_near_duplicate_message_same_text(monkeypatch):
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Hello back")
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
@@ -140,6 +150,7 @@ def test_skips_near_duplicate_message_ignores_trailing_punctuation(monkeypatch):
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Hello back")
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
@@ -170,6 +181,7 @@ def test_expands_short_followup_when_previous_reply_invited_it(monkeypatch):
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
     monkeypatch.setattr(
@@ -211,6 +223,7 @@ def test_does_not_expand_short_followup_without_previous_invitation(monkeypatch)
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
     monkeypatch.setattr(
@@ -253,11 +266,11 @@ def test_help_command(monkeypatch):
     assert response.json() == {"ok": True}
     assert captured["channel"] == "C123"
     assert "Here are the commands I understand:" in captured["text"]
-    assert "show recent conversations" in captured["text"]
-    assert "show last 5 conversations" in captured["text"]
+    assert "provider" in captured["text"]
+    assert "model" in captured["text"]
 
 
-def test_show_provider_command(monkeypatch):
+def test_provider_command(monkeypatch):
     slack_route.processed_event_ids.clear()
     slack_route.recent_message_fingerprints.clear()
 
@@ -268,17 +281,47 @@ def test_show_provider_command(monkeypatch):
         return {"ok": True, "ts": "123"}
 
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "get_provider_override", lambda: None)
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
-    response = client.post("/slack/events", json=make_event("show provider", event_id="evt-provider"))
+    response = client.post("/slack/events", json=make_event("provider", event_id="evt-provider"))
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     assert "Effective provider: openai" in captured["text"]
-    assert "Override: none" in captured["text"]
+    assert "Active model: gpt-4.1-mini" in captured["text"]
+
+
+def test_model_command_does_not_call_llm(monkeypatch):
+    slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
+
+    captured = {"called": False}
+
+    def fake_generate_reply(user_id, message):
+        captured["called"] = True
+        return "should not happen"
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("model", event_id="evt-model"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert captured["called"] is False
+    assert "gpt-4.1-mini" in captured["text"]
 
 
 def test_status_command(monkeypatch):
@@ -295,6 +338,8 @@ def test_status_command(monkeypatch):
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "get_provider_override", lambda: None)
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "validate_provider_config", lambda provider: (True, "ok"))
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
     response = client.post("/slack/events", json=make_event("status", event_id="evt-status"))
@@ -302,8 +347,8 @@ def test_status_command(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     assert "*Bishop Status*" in captured["text"]
-    assert "*Mode:* default" in captured["text"]
     assert "*Effective provider:* openai" in captured["text"]
+    assert "*Active model:* gpt-4.1-mini" in captured["text"]
 
 
 def test_provider_openai_command(monkeypatch):
@@ -311,12 +356,11 @@ def test_provider_openai_command(monkeypatch):
     slack_route.recent_message_fingerprints.clear()
 
     captured = {}
+    provider_calls = []
 
     def fake_post_message(channel, text):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
-
-    provider_calls = []
 
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "set_provider_override", lambda provider: provider_calls.append(provider))
@@ -336,12 +380,11 @@ def test_provider_default_command(monkeypatch):
     slack_route.recent_message_fingerprints.clear()
 
     captured = {}
+    cleared = {"called": False}
 
     def fake_post_message(channel, text):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
-
-    cleared = {"called": False}
 
     def fake_clear_provider_override():
         cleared["called"] = True
@@ -364,12 +407,11 @@ def test_mode_command(monkeypatch):
     slack_route.recent_message_fingerprints.clear()
 
     captured = {}
+    mode_calls = []
 
     def fake_post_message(channel, text):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
-
-    mode_calls = []
 
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "set_mode", lambda user_id, mode: mode_calls.append((user_id, mode)))
@@ -410,12 +452,11 @@ def test_show_recent_conversations_command(monkeypatch):
     slack_route.recent_message_fingerprints.clear()
 
     captured = {}
+    received = {}
 
     def fake_post_message(channel, text):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
-
-    received = {}
 
     def fake_get_recent_conversations_for_user(
         user_id,
@@ -475,12 +516,11 @@ def test_show_last_5_conversations_command(monkeypatch):
     slack_route.recent_message_fingerprints.clear()
 
     captured = {}
+    received = {}
 
     def fake_post_message(channel, text):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
-
-    received = {}
 
     def fake_get_recent_conversations_for_user(
         user_id,
@@ -527,12 +567,11 @@ def test_show_last_conversations_caps_at_10(monkeypatch):
     slack_route.recent_message_fingerprints.clear()
 
     captured = {}
+    received = {}
 
     def fake_post_message(channel, text):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
-
-    received = {}
 
     def fake_get_recent_conversations_for_user(
         user_id,
@@ -577,6 +616,7 @@ def test_normal_chat_message(monkeypatch):
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Hello back")
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
@@ -585,32 +625,3 @@ def test_normal_chat_message(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     assert captured["text"] == "Hello back"
-
-
-def test_model_command_does_not_call_llm(monkeypatch):
-    slack_route.processed_event_ids.clear()
-    slack_route.recent_message_fingerprints.clear()
-
-    captured = {"called": False}
-
-    def fake_generate_reply(user_id, message):
-        captured["called"] = True
-        return "should not happen"
-
-    def fake_post_message(channel, text):
-        captured["text"] = text
-        return {"ok": True, "ts": "123"}
-
-    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
-    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
-    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
-    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
-    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
-    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
-
-    response = client.post("/slack/events", json=make_event("model", event_id="evt-model"))
-
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
-    assert captured["called"] is False
-    assert "gpt-4.1-mini" in captured["text"]

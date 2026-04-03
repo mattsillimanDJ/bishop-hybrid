@@ -139,7 +139,9 @@ def help_text() -> str:
         "• mode work\n"
         "• mode personal\n"
         "• show mode\n"
+        "• provider\n"
         "• show provider\n"
+        "• model\n"
         "• status\n"
         "• provider openai\n"
         "• provider claude\n"
@@ -482,6 +484,34 @@ async def slack_events(request: Request):
                 model=None,
             )
             return {"ok": True}
+
+        elif lowered in {"provider", "show provider"}:
+            provider_override = get_provider_override()
+            effective_provider = get_effective_provider()
+            active_model = get_provider_model(effective_provider) or "not set"
+
+            response_text = (
+                f"Effective provider: {effective_provider}\n"
+                f"Active model: {active_model}\n"
+                f"Override: {provider_override or 'none'}"
+            )
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
+                mode=get_mode(user_id),
+                provider="system",
+                model=active_model,
+            )
+            return {"ok": True}
+
         elif lowered == "model":
             effective_provider = get_effective_provider()
             active_model = get_provider_model(effective_provider) or "not set"
@@ -503,11 +533,13 @@ async def slack_events(request: Request):
                 model=active_model,
             )
             return {"ok": True}
+
         elif lowered in {"status", "show config"}:
             current_mode = get_mode(user_id)
             provider_override = get_provider_override()
             effective_provider = get_effective_provider()
             default_provider = settings.LLM_PROVIDER
+            active_model = get_provider_model(effective_provider) or "not set"
 
             openai_ok, openai_message = validate_provider_config("openai")
             claude_ok, claude_message = validate_provider_config("claude")
@@ -516,6 +548,7 @@ async def slack_events(request: Request):
                 "*Bishop Status*\n\n"
                 f"*Mode:* {current_mode}\n"
                 f"*Effective provider:* {effective_provider}\n"
+                f"*Active model:* {active_model}\n"
                 f"*Provider override:* {provider_override or 'none'}\n"
                 f"*Railway default provider:* {default_provider}\n\n"
                 f"*OpenAI model:* {get_provider_model('openai') or 'not set'}\n"
@@ -536,34 +569,7 @@ async def slack_events(request: Request):
                 memory_used=False,
                 mode=current_mode,
                 provider="system",
-                model=None,
-            )
-            return {"ok": True}
-
-        elif lowered == "show provider":
-            provider_override = get_provider_override()
-            effective_provider = get_effective_provider()
-            default_provider = settings.LLM_PROVIDER
-
-            response_text = (
-                f"Effective provider: {effective_provider}\n"
-                f"Override: {provider_override or 'none'}\n"
-                f"Railway default: {default_provider}"
-            )
-
-            post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
+                model=active_model,
             )
             return {"ok": True}
 
@@ -573,23 +579,11 @@ async def slack_events(request: Request):
             if requested_provider == "default":
                 clear_provider_override()
                 response_text = "Provider override cleared. Falling back to Railway default."
-
             elif requested_provider in {"openai", "claude"}:
-                is_valid, validation_message = validate_provider_config(requested_provider)
-
-                if not is_valid:
-                    response_text = (
-                        f"Could not switch provider to {requested_provider}. "
-                        f"{validation_message}"
-                    )
-                else:
-                    set_provider_override(requested_provider)
-                    response_text = f"Provider override set to {requested_provider}."
-
+                set_provider_override(requested_provider)
+                response_text = f"Provider override set to {requested_provider}."
             else:
-                response_text = (
-                    "Unknown provider. Use: provider openai, provider claude, or provider default."
-                )
+                response_text = "Unknown provider. Available providers: claude, openai, default"
 
             post_message(channel_id, response_text)
 
@@ -627,10 +621,8 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         else:
-            effective_message = expand_short_followup_message(user_id=user_id, user_text=user_text)
-            response_text = generate_reply(user_id=user_id, message=effective_message)
-            effective_provider = get_effective_provider()
-            model_name = get_provider_model(effective_provider)
+            expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
+            response_text = generate_reply(user_id=user_id, message=expanded_user_text)
 
             post_message(channel_id, response_text)
 
@@ -643,26 +635,12 @@ async def slack_events(request: Request):
                 assistant_response=response_text,
                 memory_used=True,
                 mode=get_mode(user_id),
-                provider=effective_provider,
-                model=model_name,
+                provider=get_effective_provider(),
+                model=get_provider_model(get_effective_provider()),
             )
             return {"ok": True}
 
     except Exception as e:
         response_text = f"Something went wrong: {str(e)}"
-        print(response_text)
         post_message(channel_id, response_text)
-
-        log_conversation(
-            platform="slack",
-            user_id=user_id,
-            channel_id=channel_id,
-            session_id=channel_id,
-            user_message=user_text,
-            assistant_response=response_text,
-            memory_used=False,
-            mode="error",
-            provider="system",
-            model=None,
-        )
         return {"ok": True}
