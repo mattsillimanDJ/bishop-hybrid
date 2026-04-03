@@ -57,6 +57,13 @@ SHORT_FOLLOWUP_MESSAGES = {
     "okay",
 }
 
+MODE_QUERY_MESSAGES = {
+    "show mode",
+    "what mode are you in",
+    "what mode",
+    "current mode",
+}
+
 
 def post_message(channel: str, text: str):
     if not settings.SLACK_BOT_TOKEN:
@@ -456,7 +463,7 @@ async def slack_events(request: Request):
             )
             return {"ok": True}
 
-        elif lowered == "show mode":
+        elif lowered in MODE_QUERY_MESSAGES:
             current_mode = get_mode(user_id)
             response_text = f"Current mode: {current_mode}"
 
