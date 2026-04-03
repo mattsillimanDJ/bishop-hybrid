@@ -559,7 +559,7 @@ def test_show_last_5_conversations_command(monkeypatch):
         "exclude_utility_commands": True,
         "fetch_limit": 50,
     }
-    assert captured["text"] == "I don’t have any recent conversations for you yet."
+    assert captured["text"] == "I do not have any recent conversations for you yet."
 
 
 def test_show_last_conversations_caps_at_10(monkeypatch):
@@ -600,7 +600,7 @@ def test_show_last_conversations_caps_at_10(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     assert received["limit"] == 10
-    assert captured["text"] == "I don’t have any recent conversations for you yet."
+    assert captured["text"] == "I do not have any recent conversations for you yet."
 
 
 def test_normal_chat_message(monkeypatch):

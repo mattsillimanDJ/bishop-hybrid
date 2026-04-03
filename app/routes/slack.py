@@ -129,31 +129,31 @@ def is_duplicate_recent_message(user_id: str, channel_id: str, user_text: str) -
 def help_text() -> str:
     return (
         "Here are the commands I understand:\n"
-        "• remember ...\n"
-        "• recall ...\n"
-        "• forget ...\n"
-        "• show memory\n"
-        "• show recent conversations\n"
-        "• show last 5 conversations\n"
-        "• mode default\n"
-        "• mode work\n"
-        "• mode personal\n"
-        "• show mode\n"
-        "• provider\n"
-        "• show provider\n"
-        "• model\n"
-        "• status\n"
-        "• provider openai\n"
-        "• provider claude\n"
-        "• provider default\n"
-        "• help\n\n"
-        "Or just mention me normally and I’ll reply."
+        "* remember ...\n"
+        "* recall ...\n"
+        "* forget ...\n"
+        "* show memory\n"
+        "* show recent conversations\n"
+        "* show last 5 conversations\n"
+        "* mode default\n"
+        "* mode work\n"
+        "* mode personal\n"
+        "* show mode\n"
+        "* provider\n"
+        "* show provider\n"
+        "* model\n"
+        "* status\n"
+        "* provider openai\n"
+        "* provider claude\n"
+        "* provider default\n"
+        "* help\n\n"
+        "Or just mention me normally and I'll reply."
     )
 
 
 def format_recent_conversations_for_slack(items: list[dict]) -> str:
     if not items:
-        return "I don’t have any recent conversations for you yet."
+        return "I do not have any recent conversations for you yet."
 
     lines = ["Here are your recent conversations:"]
 
@@ -170,7 +170,7 @@ def format_recent_conversations_for_slack(items: list[dict]) -> str:
             assistant_response = assistant_response[:117] + "..."
 
         lines.append(
-            f"• {timestamp}\n"
+            f"* {timestamp}\n"
             f"  You: {user_message}\n"
             f"  Bishop: {assistant_response}"
         )
@@ -307,7 +307,7 @@ async def slack_events(request: Request):
                 response_text = "Please tell me what to remember."
             else:
                 add_memory(user_id=user_id, content=memory_text)
-                response_text = f"Got it. I’ll remember: {memory_text}"
+                response_text = f"Got it. I'll remember: {memory_text}"
 
             post_message(channel_id, response_text)
 
@@ -332,10 +332,10 @@ async def slack_events(request: Request):
             else:
                 results = search_memories(user_id=user_id, query=query, limit=5)
                 if results:
-                    lines = [f"• {item['content']}" for item in results]
-                    response_text = "Here’s what I found:\n" + "\n".join(lines)
+                    lines = [f"* {item['content']}" for item in results]
+                    response_text = "Here is what I found:\n" + "\n".join(lines)
                 else:
-                    response_text = "I couldn’t find anything matching that."
+                    response_text = "I could not find anything matching that."
 
             post_message(channel_id, response_text)
 
@@ -364,11 +364,11 @@ async def slack_events(request: Request):
                     if deleted > 0:
                         response_text = f"Forgot {deleted} memory item(s) matching: {query}"
                     else:
-                        response_text = f"I couldn’t find anything to forget for: {query}"
+                        response_text = f"I could not find anything to forget for: {query}"
                 elif deleted:
                     response_text = f"Forgot memory matching: {query}"
                 else:
-                    response_text = f"I couldn’t find anything to forget for: {query}"
+                    response_text = f"I could not find anything to forget for: {query}"
 
             post_message(channel_id, response_text)
 
@@ -389,10 +389,10 @@ async def slack_events(request: Request):
         elif lowered == "show memory":
             memories = get_memories(user_id=user_id, limit=20)
             if memories:
-                lines = [f"• {item['content']}" for item in memories]
-                response_text = "Here’s what I remember:\n" + "\n".join(lines)
+                lines = [f"* {item['content']}" for item in memories]
+                response_text = "Here is what I remember:\n" + "\n".join(lines)
             else:
-                response_text = "I don’t have any saved memory yet."
+                response_text = "I do not have any saved memory yet."
 
             post_message(channel_id, response_text)
 
@@ -621,6 +621,8 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         else:
+            effective_provider = get_effective_provider()
+            active_model = get_provider_model(effective_provider) or "not set"
             expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
             response_text = generate_reply(user_id=user_id, message=expanded_user_text)
 
@@ -635,8 +637,8 @@ async def slack_events(request: Request):
                 assistant_response=response_text,
                 memory_used=True,
                 mode=get_mode(user_id),
-                provider=get_effective_provider(),
-                model=get_provider_model(get_effective_provider()),
+                provider=effective_provider,
+                model=active_model,
             )
             return {"ok": True}
 
