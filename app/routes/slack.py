@@ -482,7 +482,27 @@ async def slack_events(request: Request):
                 model=None,
             )
             return {"ok": True}
+        elif lowered == "model":
+            effective_provider = get_effective_provider()
+            active_model = get_provider_model(effective_provider) or "not set"
 
+            response_text = f"Active model: {active_model}"
+
+            post_message(channel_id, response_text)
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=False,
+                mode=get_mode(user_id),
+                provider="system",
+                model=active_model,
+            )
+            return {"ok": True}
         elif lowered in {"status", "show config"}:
             current_mode = get_mode(user_id)
             provider_override = get_provider_override()

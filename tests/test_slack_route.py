@@ -585,3 +585,32 @@ def test_normal_chat_message(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     assert captured["text"] == "Hello back"
+
+
+def test_model_command_does_not_call_llm(monkeypatch):
+    slack_route.processed_event_ids.clear()
+    slack_route.recent_message_fingerprints.clear()
+
+    captured = {"called": False}
+
+    def fake_generate_reply(user_id, message):
+        captured["called"] = True
+        return "should not happen"
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("model", event_id="evt-model"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert captured["called"] is False
+    assert "gpt-4.1-mini" in captured["text"]
