@@ -6,28 +6,30 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from app.config import settings
+from app.services.chat_service import (
+    build_task_text_from_message,
+    generate_reply,
+    response_contains_commitment,
+)
+from app.services.conversation_log_service import (
+    get_recent_conversations_for_user,
+    log_conversation,
+)
 from app.services.memory_service import (
     add_memory,
+    delete_memory_by_query,
     get_memories,
     search_memories,
-    delete_memory_by_query,
 )
-from app.services.chat_service import generate_reply
-from app.services.conversation_log_service import (
-    log_conversation,
-    get_recent_conversations_for_user,
-)
-from app.services.mode_service import get_mode, set_mode, VALID_MODES
-from app.services.provider_service import (
-    get_provider_model,
-    validate_provider_config,
-)
+from app.services.mode_service import VALID_MODES, get_mode, set_mode
+from app.services.provider_service import get_provider_model, validate_provider_config
 from app.services.provider_state_service import (
-    get_provider_override,
-    get_effective_provider,
-    set_provider_override,
     clear_provider_override,
+    get_effective_provider,
+    get_provider_override,
+    set_provider_override,
 )
+from app.services.task_service import add_task, clear_tasks, get_tasks
 
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
@@ -62,6 +64,18 @@ MODE_QUERY_MESSAGES = {
     "what mode are you in",
     "what mode",
     "current mode",
+}
+
+TASK_QUERY_MESSAGES = {
+    "show tasks",
+    "show pending",
+    "show pending tasks",
+}
+
+CLEAR_TASK_MESSAGES = {
+    "clear tasks",
+    "clear pending",
+    "clear pending tasks",
 }
 
 
@@ -135,6 +149,9 @@ def help_text() -> str:
         "* show memory\n"
         "* show recent conversations\n"
         "* show last 5 conversations\n"
+        "* show tasks\n"
+        "* show pending\n"
+        "* clear tasks\n"
         "* mode default\n"
         "* mode work\n"
         "* mode personal\n"
@@ -174,6 +191,29 @@ def format_recent_conversations_for_slack(items: list[dict]) -> str:
             f"  You: {user_message}\n"
             f"  Bishop: {assistant_response}"
         )
+
+    return "\n".join(lines)
+
+
+def format_tasks_for_slack(items: list[dict]) -> str:
+    if not items:
+        return "No pending tasks right now."
+
+    lines = ["Pending tasks:"]
+    for item in items:
+        created_at = item.get("created_at", "")
+        timestamp = created_at.replace("T", " ")[:19] if created_at else "unknown time"
+        task_text = (item.get("task_text") or "").strip()
+        assistant_commitment = (item.get("assistant_commitment") or "").strip().replace("\n", " ")
+
+        if len(task_text) > 120:
+            task_text = task_text[:117] + "..."
+        if len(assistant_commitment) > 120:
+            assistant_commitment = assistant_commitment[:117] + "..."
+
+        lines.append(f"* {timestamp}: {task_text}")
+        if assistant_commitment:
+            lines.append(f"  Commitment: {assistant_commitment}")
 
     return "\n".join(lines)
 
@@ -255,6 +295,29 @@ def expand_short_followup_message(user_id: str, user_text: str) -> str:
     )
 
 
+def log_system_response(
+    user_id: str,
+    channel_id: str,
+    user_text: str,
+    response_text: str,
+    *,
+    memory_used: bool = False,
+    model: str | None = None,
+):
+    log_conversation(
+        platform="slack",
+        user_id=user_id,
+        channel_id=channel_id,
+        session_id=channel_id,
+        user_message=user_text,
+        assistant_response=response_text,
+        memory_used=memory_used,
+        mode=get_mode(user_id),
+        provider="system",
+        model=model,
+    )
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request):
     body = await request.json()
@@ -306,26 +369,14 @@ async def slack_events(request: Request):
             if not memory_text:
                 response_text = "Please tell me what to remember."
             else:
-                add_memory(user_id=user_id, content=memory_text)
+                add_memory(user_id=user_id, category="note", content=memory_text)
                 response_text = f"Got it. I'll remember: {memory_text}"
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        elif lowered.startswith("recall "):
+        if lowered.startswith("recall "):
             query = user_text[7:].strip()
             if not query:
                 response_text = "Please tell me what you want me to recall."
@@ -338,55 +389,25 @@ async def slack_events(request: Request):
                     response_text = "I could not find anything matching that."
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=True,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
             return {"ok": True}
 
-        elif lowered.startswith("forget "):
+        if lowered.startswith("forget "):
             query = user_text[7:].strip()
             if not query:
                 response_text = "Please tell me what you want me to forget."
             else:
                 deleted = delete_memory_by_query(user_id=user_id, query=query)
-
-                if isinstance(deleted, int):
-                    if deleted > 0:
-                        response_text = f"Forgot {deleted} memory item(s) matching: {query}"
-                    else:
-                        response_text = f"I could not find anything to forget for: {query}"
-                elif deleted:
+                if deleted.get("deleted"):
                     response_text = f"Forgot memory matching: {query}"
                 else:
                     response_text = f"I could not find anything to forget for: {query}"
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        elif lowered == "show memory":
+        if lowered == "show memory":
             memories = get_memories(user_id=user_id, limit=20)
             if memories:
                 lines = [f"* {item['content']}" for item in memories]
@@ -395,26 +416,14 @@ async def slack_events(request: Request):
                 response_text = "I do not have any saved memory yet."
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=True,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
             return {"ok": True}
 
-        elif get_requested_conversation_limit(lowered) is not None:
-            limit = get_requested_conversation_limit(lowered) or 5
+        requested_limit = get_requested_conversation_limit(lowered)
+        if requested_limit is not None:
             items = get_recent_conversations_for_user(
                 user_id=user_id,
-                limit=limit,
+                limit=requested_limit,
                 platform="slack",
                 exclude_utility_commands=True,
                 fetch_limit=50,
@@ -422,22 +431,26 @@ async def slack_events(request: Request):
             response_text = format_recent_conversations_for_slack(items)
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        elif lowered.startswith("mode "):
+        if lowered in TASK_QUERY_MESSAGES:
+            tasks = get_tasks(user_id=user_id, status="pending", limit=10)
+            response_text = format_tasks_for_slack(tasks)
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in CLEAR_TASK_MESSAGES:
+            result = clear_tasks(user_id=user_id, status="pending")
+            response_text = f"Cleared {result['deleted']} pending task(s)."
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered.startswith("mode "):
             requested_mode = lowered.replace("mode ", "", 1).strip()
 
             if requested_mode in VALID_MODES:
@@ -450,42 +463,18 @@ async def slack_events(request: Request):
                 )
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        elif lowered in MODE_QUERY_MESSAGES:
+        if lowered in MODE_QUERY_MESSAGES:
             current_mode = get_mode(user_id)
             response_text = f"Current mode: {current_mode}"
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=current_mode,
-                provider="system",
-                model=None,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        elif lowered in {"provider", "show provider"}:
+        if lowered in {"provider", "show provider"}:
             provider_override = get_provider_override()
             effective_provider = get_effective_provider()
             active_model = get_provider_model(effective_provider) or "not set"
@@ -497,49 +486,26 @@ async def slack_events(request: Request):
             )
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=active_model,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text, model=active_model)
             return {"ok": True}
 
-        elif lowered == "model":
+        if lowered == "model":
             effective_provider = get_effective_provider()
             active_model = get_provider_model(effective_provider) or "not set"
 
             response_text = f"Active model: {active_model}"
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=active_model,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text, model=active_model)
             return {"ok": True}
 
-        elif lowered in {"status", "show config"}:
+        if lowered in {"status", "show config"}:
             current_mode = get_mode(user_id)
             provider_override = get_provider_override()
             effective_provider = get_effective_provider()
             default_provider = settings.LLM_PROVIDER
             active_model = get_provider_model(effective_provider) or "not set"
+            pending_tasks = get_tasks(user_id=user_id, status="pending", limit=10)
 
             openai_ok, openai_message = validate_provider_config("openai")
             claude_ok, claude_message = validate_provider_config("claude")
@@ -550,7 +516,8 @@ async def slack_events(request: Request):
                 f"*Effective provider:* {effective_provider}\n"
                 f"*Active model:* {active_model}\n"
                 f"*Provider override:* {provider_override or 'none'}\n"
-                f"*Railway default provider:* {default_provider}\n\n"
+                f"*Railway default provider:* {default_provider}\n"
+                f"*Pending tasks:* {len(pending_tasks)}\n\n"
                 f"*OpenAI model:* {get_provider_model('openai') or 'not set'}\n"
                 f"*Claude model:* {get_provider_model('claude') or 'not set'}\n\n"
                 f"*OpenAI config:* {'ok' if openai_ok else openai_message}\n"
@@ -558,22 +525,10 @@ async def slack_events(request: Request):
             )
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=current_mode,
-                provider="system",
-                model=active_model,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text, model=active_model)
             return {"ok": True}
 
-        elif lowered.startswith("provider "):
+        if lowered.startswith("provider "):
             requested_provider = lowered.replace("provider ", "", 1).strip()
 
             if requested_provider == "default":
@@ -586,61 +541,47 @@ async def slack_events(request: Request):
                 response_text = "Unknown provider. Available providers: claude, openai, default"
 
             post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
-            )
+            log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        elif lowered == "help":
+        if lowered == "help":
             response_text = help_text()
 
             post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
 
-            log_conversation(
-                platform="slack",
+        effective_provider = get_effective_provider()
+        active_model = get_provider_model(effective_provider) or "not set"
+        expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
+        response_text = generate_reply(user_id=user_id, message=expanded_user_text)
+
+        if response_contains_commitment(response_text):
+            add_task(
                 user_id=user_id,
                 channel_id=channel_id,
                 session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=False,
-                mode=get_mode(user_id),
-                provider="system",
-                model=None,
+                source_message=user_text,
+                task_text=build_task_text_from_message(user_text),
+                assistant_commitment=response_text,
+                status="pending",
             )
-            return {"ok": True}
 
-        else:
-            effective_provider = get_effective_provider()
-            active_model = get_provider_model(effective_provider) or "not set"
-            expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
-            response_text = generate_reply(user_id=user_id, message=expanded_user_text)
+        post_message(channel_id, response_text)
 
-            post_message(channel_id, response_text)
-
-            log_conversation(
-                platform="slack",
-                user_id=user_id,
-                channel_id=channel_id,
-                session_id=channel_id,
-                user_message=user_text,
-                assistant_response=response_text,
-                memory_used=True,
-                mode=get_mode(user_id),
-                provider=effective_provider,
-                model=active_model,
-            )
-            return {"ok": True}
+        log_conversation(
+            platform="slack",
+            user_id=user_id,
+            channel_id=channel_id,
+            session_id=channel_id,
+            user_message=user_text,
+            assistant_response=response_text,
+            memory_used=True,
+            mode=get_mode(user_id),
+            provider=effective_provider,
+            model=active_model,
+        )
+        return {"ok": True}
 
     except Exception as e:
         response_text = f"Something went wrong: {str(e)}"
