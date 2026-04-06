@@ -6,11 +6,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from app.config import settings
-from app.services.chat_service import (
-    build_task_text_from_message,
-    generate_reply,
-    response_contains_commitment,
-)
+from app.services.chat_service import generate_reply, response_contains_commitment
 from app.services.conversation_log_service import (
     get_recent_conversations_for_user,
     log_conversation,
@@ -29,7 +25,13 @@ from app.services.provider_state_service import (
     get_provider_override,
     set_provider_override,
 )
-from app.services.task_service import add_task, clear_tasks, get_tasks
+from app.services.task_service import (
+    add_task,
+    build_task_text_from_user_message,
+    clear_tasks,
+    get_tasks,
+    should_capture_task_from_user_message,
+)
 
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
@@ -152,6 +154,9 @@ def help_text() -> str:
         "* show tasks\n"
         "* show pending\n"
         "* clear tasks\n"
+        "* add task ...\n"
+        "* save task ...\n"
+        "* remind me ...\n"
         "* mode default\n"
         "* mode work\n"
         "* mode personal\n"
@@ -364,6 +369,12 @@ async def slack_events(request: Request):
     try:
         lowered = user_text.lower().strip()
 
+        if lowered == "help":
+            response_text = help_text()
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
         if lowered.startswith("remember "):
             memory_text = user_text[9:].strip()
             if not memory_text:
@@ -450,6 +461,26 @@ async def slack_events(request: Request):
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
+        if should_capture_task_from_user_message(user_text):
+            task_text = build_task_text_from_user_message(user_text)
+            if task_text:
+                add_task(
+                    user_id=user_id,
+                    channel_id=channel_id,
+                    session_id=channel_id,
+                    source_message=user_text,
+                    task_text=task_text,
+                    assistant_commitment="Saved as a pending task.",
+                    status="pending",
+                )
+                response_text = f"Saved to pending tasks: {task_text}"
+            else:
+                response_text = "I could not figure out the task text. Please try again."
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
         if lowered.startswith("mode "):
             requested_mode = lowered.replace("mode ", "", 1).strip()
 
@@ -518,10 +549,9 @@ async def slack_events(request: Request):
                 f"*Provider override:* {provider_override or 'none'}\n"
                 f"*Railway default provider:* {default_provider}\n"
                 f"*Pending tasks:* {len(pending_tasks)}\n\n"
-                f"*OpenAI model:* {get_provider_model('openai') or 'not set'}\n"
-                f"*Claude model:* {get_provider_model('claude') or 'not set'}\n\n"
-                f"*OpenAI config:* {'ok' if openai_ok else openai_message}\n"
-                f"*Claude config:* {'ok' if claude_ok else claude_message}"
+                "*Provider checks:*\n"
+                f"* OpenAI: {'OK' if openai_ok else 'Missing'} , {openai_message}\n"
+                f"* Claude: {'OK' if claude_ok else 'Missing'} , {claude_message}"
             )
 
             post_message(channel_id, response_text)
@@ -533,28 +563,35 @@ async def slack_events(request: Request):
 
             if requested_provider == "default":
                 clear_provider_override()
-                response_text = "Provider override cleared. Falling back to Railway default."
+                effective_provider = get_effective_provider()
+                active_model = get_provider_model(effective_provider) or "not set"
+                response_text = (
+                    f"Provider override cleared. Effective provider: {effective_provider}. "
+                    f"Active model: {active_model}"
+                )
             elif requested_provider in {"openai", "claude"}:
-                set_provider_override(requested_provider)
-                response_text = f"Provider override set to {requested_provider}."
+                ok, message = validate_provider_config(requested_provider)
+                if not ok:
+                    response_text = f"Cannot switch to {requested_provider}: {message}"
+                else:
+                    set_provider_override(requested_provider)
+                    active_model = get_provider_model(requested_provider) or "not set"
+                    response_text = (
+                        f"Provider override set to {requested_provider}.\n"
+                        f"Active model: {active_model}"
+                    )
             else:
-                response_text = "Unknown provider. Available providers: claude, openai, default"
+                response_text = "Unknown provider. Available options: openai, claude, default."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        if lowered == "help":
-            response_text = help_text()
-
-            post_message(channel_id, response_text)
-            log_system_response(user_id, channel_id, user_text, response_text)
-            return {"ok": True}
+        expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
+        response_text = generate_reply(user_id=user_id, message=expanded_user_text)
 
         effective_provider = get_effective_provider()
         active_model = get_provider_model(effective_provider) or "not set"
-        expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
-        response_text = generate_reply(user_id=user_id, message=expanded_user_text)
 
         if response_contains_commitment(response_text):
             add_task(
@@ -562,7 +599,7 @@ async def slack_events(request: Request):
                 channel_id=channel_id,
                 session_id=channel_id,
                 source_message=user_text,
-                task_text=build_task_text_from_message(user_text),
+                task_text=user_text,
                 assistant_commitment=response_text,
                 status="pending",
             )
