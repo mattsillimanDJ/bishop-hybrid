@@ -7,8 +7,15 @@ from app.config import settings
 VALID_PROVIDERS = {"openai", "claude"}
 
 
+def normalize_provider(provider: str | None) -> str:
+    normalized = (provider or settings.LLM_PROVIDER or "openai").strip().lower()
+    if normalized in VALID_PROVIDERS:
+        return normalized
+    return normalized
+
+
 def get_provider_model(provider: str) -> str | None:
-    provider = (provider or settings.LLM_PROVIDER).lower()
+    provider = normalize_provider(provider)
 
     if provider == "openai":
         return settings.OPENAI_MODEL or None
@@ -20,7 +27,7 @@ def get_provider_model(provider: str) -> str | None:
 
 
 def validate_provider_config(provider: str) -> tuple[bool, str]:
-    provider = (provider or "").strip().lower()
+    provider = normalize_provider(provider)
 
     if provider not in VALID_PROVIDERS:
         return False, f"Unsupported provider: {provider}"
@@ -43,7 +50,7 @@ def validate_provider_config(provider: str) -> tuple[bool, str]:
 
 
 def generate_text(provider: str, system_prompt: str, user_prompt: str) -> str:
-    provider = (provider or settings.LLM_PROVIDER).lower()
+    provider = normalize_provider(provider)
 
     is_valid, validation_message = validate_provider_config(provider)
     if not is_valid:

@@ -23,6 +23,7 @@ from app.services.provider_state_service import (
     clear_provider_override,
     get_effective_provider,
     get_provider_override,
+    get_provider_resolution,
     set_provider_override,
 )
 from app.services.task_service import (
@@ -323,6 +324,58 @@ def log_system_response(
     )
 
 
+def get_active_model_for_effective_provider() -> str:
+    effective_provider = get_effective_provider()
+    return get_provider_model(effective_provider) or "not set"
+
+
+def build_provider_summary_text() -> tuple[str, str]:
+    resolution = get_provider_resolution()
+    effective_provider = resolution["effective_provider"]
+    active_model = get_provider_model(effective_provider) or "not set"
+
+    lines = [
+        f"Effective provider: {effective_provider}",
+        f"Active model: {active_model}",
+        f"Override: {resolution['override'] or 'none'}",
+        f"Override status: {'OK' if resolution['override_ok'] else resolution['override_message']}",
+        f"Default provider: {resolution['default_provider']}",
+        f"Default status: {'OK' if resolution['default_ok'] else resolution['default_message']}",
+        f"Resolution source: {resolution['effective_from']}",
+    ]
+
+    return "\n".join(lines), active_model
+
+
+def build_status_text(user_id: str) -> tuple[str, str]:
+    current_mode = get_mode(user_id)
+    resolution = get_provider_resolution()
+    effective_provider = resolution["effective_provider"]
+    active_model = get_provider_model(effective_provider) or "not set"
+    pending_tasks = get_tasks(user_id=user_id, status="pending", limit=10)
+
+    openai_ok, openai_message = validate_provider_config("openai")
+    claude_ok, claude_message = validate_provider_config("claude")
+
+    response_text = (
+        "*Bishop Status*\n\n"
+        f"*Mode:* {current_mode}\n"
+        f"*Effective provider:* {effective_provider}\n"
+        f"*Active model:* {active_model}\n"
+        f"*Provider override:* {resolution['override'] or 'none'}\n"
+        f"*Override status:* {'OK' if resolution['override_ok'] else resolution['override_message']}\n"
+        f"*Railway default provider:* {resolution['default_provider']}\n"
+        f"*Default provider status:* {'OK' if resolution['default_ok'] else resolution['default_message']}\n"
+        f"*Resolution source:* {resolution['effective_from']}\n"
+        f"*Pending tasks:* {len(pending_tasks)}\n\n"
+        "*Provider checks:*\n"
+        f"* OpenAI: {'OK' if openai_ok else 'Missing'} , {openai_message}\n"
+        f"* Claude: {'OK' if claude_ok else 'Missing'} , {claude_message}"
+    )
+
+    return response_text, active_model
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request):
     body = await request.json()
@@ -506,24 +559,14 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered in {"provider", "show provider"}:
-            provider_override = get_provider_override()
-            effective_provider = get_effective_provider()
-            active_model = get_provider_model(effective_provider) or "not set"
-
-            response_text = (
-                f"Effective provider: {effective_provider}\n"
-                f"Active model: {active_model}\n"
-                f"Override: {provider_override or 'none'}"
-            )
+            response_text, active_model = build_provider_summary_text()
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, model=active_model)
             return {"ok": True}
 
         if lowered == "model":
-            effective_provider = get_effective_provider()
-            active_model = get_provider_model(effective_provider) or "not set"
-
+            active_model = get_active_model_for_effective_provider()
             response_text = f"Active model: {active_model}"
 
             post_message(channel_id, response_text)
@@ -531,28 +574,7 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered in {"status", "show config"}:
-            current_mode = get_mode(user_id)
-            provider_override = get_provider_override()
-            effective_provider = get_effective_provider()
-            default_provider = settings.LLM_PROVIDER
-            active_model = get_provider_model(effective_provider) or "not set"
-            pending_tasks = get_tasks(user_id=user_id, status="pending", limit=10)
-
-            openai_ok, openai_message = validate_provider_config("openai")
-            claude_ok, claude_message = validate_provider_config("claude")
-
-            response_text = (
-                "*Bishop Status*\n\n"
-                f"*Mode:* {current_mode}\n"
-                f"*Effective provider:* {effective_provider}\n"
-                f"*Active model:* {active_model}\n"
-                f"*Provider override:* {provider_override or 'none'}\n"
-                f"*Railway default provider:* {default_provider}\n"
-                f"*Pending tasks:* {len(pending_tasks)}\n\n"
-                "*Provider checks:*\n"
-                f"* OpenAI: {'OK' if openai_ok else 'Missing'} , {openai_message}\n"
-                f"* Claude: {'OK' if claude_ok else 'Missing'} , {claude_message}"
-            )
+            response_text, active_model = build_status_text(user_id)
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, model=active_model)
@@ -563,28 +585,29 @@ async def slack_events(request: Request):
 
             if requested_provider == "default":
                 clear_provider_override()
-                effective_provider = get_effective_provider()
-                active_model = get_provider_model(effective_provider) or "not set"
-                response_text = (
-                    f"Provider override cleared. Effective provider: {effective_provider}. "
-                    f"Active model: {active_model}"
-                )
+                response_text, active_model = build_provider_summary_text()
+                response_text = "Provider override cleared.\n" + response_text
             elif requested_provider in {"openai", "claude"}:
                 ok, message = validate_provider_config(requested_provider)
                 if not ok:
-                    response_text = f"Cannot switch to {requested_provider}: {message}"
+                    response_text, active_model = build_provider_summary_text()
+                    response_text = (
+                        f"Cannot switch to {requested_provider}: {message}\n"
+                        + response_text
+                    )
                 else:
                     set_provider_override(requested_provider)
-                    active_model = get_provider_model(requested_provider) or "not set"
+                    response_text, active_model = build_provider_summary_text()
                     response_text = (
                         f"Provider override set to {requested_provider}.\n"
-                        f"Active model: {active_model}"
+                        + response_text
                     )
             else:
+                active_model = get_active_model_for_effective_provider()
                 response_text = "Unknown provider. Available options: openai, claude, default."
 
             post_message(channel_id, response_text)
-            log_system_response(user_id, channel_id, user_text, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text, model=active_model)
             return {"ok": True}
 
         expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
