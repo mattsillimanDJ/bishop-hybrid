@@ -438,6 +438,155 @@ def test_remind_me_request_returns_existing_pending_task_message_when_deduped(mo
     assert created_tasks[0]["task_text"] == "review the deck"
 
 
+def test_done_command_marks_pending_task_done(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_mark_task_done(user_id, task_text):
+        assert user_id == "U123"
+        assert task_text == "send the invoice"
+        return {
+            "updated": True,
+            "task": {
+                "task_text": "send the invoice",
+            },
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "mark_task_done", fake_mark_task_done)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("done send the invoice", event_id="evt-done-task"))
+
+    assert response.status_code == 200
+    assert captured["text"] == "Marked done: send the invoice"
+
+
+def test_complete_task_command_marks_pending_task_done(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_mark_task_done(user_id, task_text):
+        assert user_id == "U123"
+        assert task_text == "send the invoice"
+        return {
+            "updated": True,
+            "task": {
+                "task_text": "send the invoice",
+            },
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "mark_task_done", fake_mark_task_done)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("complete task send the invoice", event_id="evt-complete-task"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Marked done: send the invoice"
+
+
+def test_done_command_returns_not_found_message_when_no_pending_match(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_mark_task_done(user_id, task_text):
+        assert user_id == "U123"
+        assert task_text == "send the invoice"
+        return {"updated": False}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "mark_task_done", fake_mark_task_done)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("done send the invoice", event_id="evt-done-task-missing"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "I could not find a pending task matching: send the invoice"
+
+
+def test_remove_task_command_removes_pending_task(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_remove_task(user_id, task_text, status="pending"):
+        assert user_id == "U123"
+        assert task_text == "review the deck"
+        assert status == "pending"
+        return {
+            "deleted": True,
+            "task": {
+                "task_text": "review the deck",
+            },
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "remove_task", fake_remove_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("remove task review the deck", event_id="evt-remove-task"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Removed pending task: review the deck"
+
+
+def test_remove_task_command_returns_not_found_message_when_no_pending_match(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_remove_task(user_id, task_text, status="pending"):
+        assert user_id == "U123"
+        assert task_text == "review the deck"
+        assert status == "pending"
+        return {"deleted": False}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "remove_task", fake_remove_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("remove task review the deck", event_id="evt-remove-task-missing"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "I could not find a pending task matching: review the deck"
+
+
 def test_normal_chat_message_creates_task_on_commitment(monkeypatch):
     reset_route_state()
     captured = {}
