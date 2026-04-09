@@ -90,6 +90,13 @@ CLEAR_TASK_MESSAGES = {
     "clear pending tasks",
 }
 
+CLEAR_DONE_TASK_MESSAGES = {
+    "clear done",
+    "clear done tasks",
+    "clear completed",
+    "clear completed tasks",
+}
+
 COMPLETE_TASK_PATTERNS = [
     r"^\s*done\s+",
     r"^\s*complete task\s+",
@@ -180,6 +187,8 @@ def help_text() -> str:
         "* show done\n"
         "* show completed\n"
         "* clear tasks\n"
+        "* clear done\n"
+        "* clear completed\n"
         "* add task ...\n"
         "* save task ...\n"
         "* remind me ...\n"
@@ -590,6 +599,14 @@ async def slack_events(request: Request):
         if lowered in CLEAR_TASK_MESSAGES:
             result = clear_tasks(user_id=user_id, status="pending")
             response_text = f"Cleared {result['deleted']} pending task(s)."
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in CLEAR_DONE_TASK_MESSAGES:
+            result = clear_tasks(user_id=user_id, status="done")
+            response_text = f"Cleared {result['deleted']} completed task(s)."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
