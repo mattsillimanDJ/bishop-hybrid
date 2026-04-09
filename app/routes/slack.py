@@ -84,6 +84,11 @@ DONE_TASK_QUERY_MESSAGES = {
     "show completed tasks",
 }
 
+ALL_TASK_QUERY_MESSAGES = {
+    "show all",
+    "show all tasks",
+}
+
 CLEAR_TASK_MESSAGES = {
     "clear tasks",
     "clear pending",
@@ -186,6 +191,8 @@ def help_text() -> str:
         "* show pending\n"
         "* show done\n"
         "* show completed\n"
+        "* show all\n"
+        "* show all tasks\n"
         "* clear tasks\n"
         "* clear done\n"
         "* clear completed\n"
@@ -264,6 +271,31 @@ def format_tasks_for_slack(
             lines.append(f"  Commitment: {assistant_commitment}")
 
     return "\n".join(lines)
+
+
+def format_all_tasks_for_slack(pending_items: list[dict], done_items: list[dict]) -> str:
+    if not pending_items and not done_items:
+        return "No tasks right now."
+
+    sections = []
+
+    sections.append(
+        format_tasks_for_slack(
+            pending_items,
+            title="Pending tasks:",
+            empty_text="No pending tasks right now.",
+        )
+    )
+    sections.append("")
+    sections.append(
+        format_tasks_for_slack(
+            done_items,
+            title="Completed tasks:",
+            empty_text="No completed tasks right now.",
+        )
+    )
+
+    return "\n".join(sections)
 
 
 def get_requested_conversation_limit(lowered: str) -> int | None:
@@ -591,6 +623,15 @@ async def slack_events(request: Request):
                 title="Completed tasks:",
                 empty_text="No completed tasks right now.",
             )
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in ALL_TASK_QUERY_MESSAGES:
+            pending_tasks = get_tasks(user_id=user_id, status="pending", limit=10)
+            done_tasks = get_tasks(user_id=user_id, status="done", limit=10)
+            response_text = format_all_tasks_for_slack(pending_tasks, done_tasks)
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)

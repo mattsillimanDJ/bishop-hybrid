@@ -188,6 +188,8 @@ def test_help_command(monkeypatch):
     assert "show tasks" in captured["text"]
     assert "show done" in captured["text"]
     assert "show completed" in captured["text"]
+    assert "show all" in captured["text"]
+    assert "show all tasks" in captured["text"]
     assert "clear done" in captured["text"]
     assert "clear completed" in captured["text"]
     assert "add task" in captured["text"]
@@ -285,7 +287,7 @@ def test_show_pending_command(monkeypatch):
                 "task_text": "Do 1, 2, and 3",
                 "assistant_commitment": "On it. I'll proceed with 1, 2, and 3.",
             }
-        ],
+        ] if status == "pending" else [],
     )
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
@@ -315,7 +317,7 @@ def test_show_completed_command(monkeypatch):
                 "task_text": "send the invoice",
                 "assistant_commitment": "Saved as a pending task.",
             }
-        ],
+        ] if status == "done" else [],
     )
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
@@ -349,6 +351,73 @@ def test_show_done_command_uses_done_status(monkeypatch):
     assert response.status_code == 200
     assert captured["calls"] == [("U123", "done", 10)]
     assert captured["text"] == "No completed tasks right now."
+
+
+def test_show_all_tasks_command(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_tasks(user_id, status="pending", limit=10):
+        captured["calls"].append((user_id, status, limit))
+        if status == "pending":
+            return [
+                {
+                    "created_at": "2026-04-03T20:00:00+00:00",
+                    "task_text": "review the deck",
+                    "assistant_commitment": "Saved as a pending task.",
+                }
+            ]
+        if status == "done":
+            return [
+                {
+                    "created_at": "2026-04-03T21:00:00+00:00",
+                    "task_text": "send the invoice",
+                    "assistant_commitment": "Saved as a pending task.",
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_tasks", fake_get_tasks)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("show all tasks", event_id="evt-show-all-tasks"))
+
+    assert response.status_code == 200
+    assert captured["calls"] == [("U123", "pending", 10), ("U123", "done", 10)]
+    assert "Pending tasks:" in captured["text"]
+    assert "review the deck" in captured["text"]
+    assert "Completed tasks:" in captured["text"]
+    assert "send the invoice" in captured["text"]
+
+
+def test_show_all_command_when_no_tasks(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_tasks(user_id, status="pending", limit=10):
+        captured["calls"].append((user_id, status, limit))
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_tasks", fake_get_tasks)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("show all", event_id="evt-show-all"))
+
+    assert response.status_code == 200
+    assert captured["calls"] == [("U123", "pending", 10), ("U123", "done", 10)]
+    assert captured["text"] == "No tasks right now."
 
 
 def test_clear_tasks_command(monkeypatch):
