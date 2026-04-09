@@ -77,6 +77,13 @@ TASK_QUERY_MESSAGES = {
     "show pending tasks",
 }
 
+DONE_TASK_QUERY_MESSAGES = {
+    "show done",
+    "show done tasks",
+    "show completed",
+    "show completed tasks",
+}
+
 CLEAR_TASK_MESSAGES = {
     "clear tasks",
     "clear pending",
@@ -170,6 +177,8 @@ def help_text() -> str:
         "* show last 5 conversations\n"
         "* show tasks\n"
         "* show pending\n"
+        "* show done\n"
+        "* show completed\n"
         "* clear tasks\n"
         "* add task ...\n"
         "* save task ...\n"
@@ -220,11 +229,16 @@ def format_recent_conversations_for_slack(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def format_tasks_for_slack(items: list[dict]) -> str:
+def format_tasks_for_slack(
+    items: list[dict],
+    *,
+    title: str = "Pending tasks:",
+    empty_text: str = "No pending tasks right now.",
+) -> str:
     if not items:
-        return "No pending tasks right now."
+        return empty_text
 
-    lines = ["Pending tasks:"]
+    lines = [title]
     for item in items:
         created_at = item.get("created_at", "")
         timestamp = created_at.replace("T", " ")[:19] if created_at else "unknown time"
@@ -551,7 +565,23 @@ async def slack_events(request: Request):
 
         if lowered in TASK_QUERY_MESSAGES:
             tasks = get_tasks(user_id=user_id, status="pending", limit=10)
-            response_text = format_tasks_for_slack(tasks)
+            response_text = format_tasks_for_slack(
+                tasks,
+                title="Pending tasks:",
+                empty_text="No pending tasks right now.",
+            )
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in DONE_TASK_QUERY_MESSAGES:
+            tasks = get_tasks(user_id=user_id, status="done", limit=10)
+            response_text = format_tasks_for_slack(
+                tasks,
+                title="Completed tasks:",
+                empty_text="No completed tasks right now.",
+            )
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)

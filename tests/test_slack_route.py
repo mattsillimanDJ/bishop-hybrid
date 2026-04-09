@@ -186,6 +186,8 @@ def test_help_command(monkeypatch):
 
     assert response.status_code == 200
     assert "show tasks" in captured["text"]
+    assert "show done" in captured["text"]
+    assert "show completed" in captured["text"]
     assert "add task" in captured["text"]
     assert "remind me" in captured["text"]
 
@@ -291,6 +293,60 @@ def test_show_pending_command(monkeypatch):
     assert response.status_code == 200
     assert "Pending tasks:" in captured["text"]
     assert "Do 1, 2, and 3" in captured["text"]
+
+
+def test_show_completed_command(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, status="done", limit=10: [
+            {
+                "created_at": "2026-04-03T20:00:00+00:00",
+                "task_text": "send the invoice",
+                "assistant_commitment": "Saved as a pending task.",
+            }
+        ],
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("show completed", event_id="evt-show-completed"))
+
+    assert response.status_code == 200
+    assert "Completed tasks:" in captured["text"]
+    assert "send the invoice" in captured["text"]
+
+
+def test_show_done_command_uses_done_status(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_tasks(user_id, status="pending", limit=10):
+        captured["calls"].append((user_id, status, limit))
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_tasks", fake_get_tasks)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("show done", event_id="evt-show-done"))
+
+    assert response.status_code == 200
+    assert captured["calls"] == [("U123", "done", 10)]
+    assert captured["text"] == "No completed tasks right now."
 
 
 def test_clear_tasks_command(monkeypatch):
