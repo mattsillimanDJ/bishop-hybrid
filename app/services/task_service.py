@@ -9,6 +9,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "data" / "bishop_memory.db"
 
 VALID_TASK_STATUSES = {"pending", "done"}
+DEFAULT_TASK_DEDUPE_LOOKBACK_LIMIT = 10
 
 EXPLICIT_TASK_PREFIX_PATTERNS = [
     r"^\s*add task\s*[:\-]?\s*",
@@ -56,6 +57,14 @@ def init_task_table() -> None:
 
 
 def normalize_task_text(task_text: str) -> str:
+    task_text = (task_text or "").strip().lower()
+    task_text = re.sub(r"\s+", " ", task_text)
+    task_text = re.sub(r"^[\-\:\,\.\s]+", "", task_text)
+    task_text = re.sub(r"[\s\.\!]+$", "", task_text)
+    return task_text.strip()
+
+
+def format_task_text(task_text: str) -> str:
     task_text = (task_text or "").strip()
     task_text = re.sub(r"\s+", " ", task_text)
     task_text = re.sub(r"^[\-\:\,\.\s]+", "", task_text)
@@ -64,7 +73,7 @@ def normalize_task_text(task_text: str) -> str:
 
 
 def truncate_task_text(task_text: str, limit: int = 160) -> str:
-    task_text = normalize_task_text(task_text)
+    task_text = format_task_text(task_text)
     if len(task_text) <= limit:
         return task_text
     return task_text[: limit - 3].rstrip() + "..."
@@ -90,7 +99,7 @@ def extract_task_text_from_explicit_command(message: str) -> str | None:
         match = re.match(pattern, lowered)
         if match:
             extracted = original[match.end():].strip()
-            extracted = normalize_task_text(extracted)
+            extracted = format_task_text(extracted)
             return extracted or None
 
     return None
@@ -118,7 +127,7 @@ def extract_task_text_from_reminder_request(message: str) -> str | None:
     to_match = re.search(r"\bto\b", lowered)
     if to_match:
         extracted = original[to_match.end():].strip()
-        extracted = normalize_task_text(extracted)
+        extracted = format_task_text(extracted)
         return extracted or None
 
     cleaned = original
@@ -128,7 +137,7 @@ def extract_task_text_from_reminder_request(message: str) -> str | None:
             cleaned = original[match.end():].strip()
             break
 
-    cleaned = normalize_task_text(cleaned)
+    cleaned = format_task_text(cleaned)
     return cleaned or None
 
 
@@ -148,6 +157,29 @@ def build_task_text_from_user_message(message: str) -> str | None:
     return None
 
 
+def find_recent_matching_task(
+    user_id: str,
+    task_text: str,
+    *,
+    status: str = "pending",
+    limit: int = DEFAULT_TASK_DEDUPE_LOOKBACK_LIMIT,
+) -> Dict | None:
+    if status not in VALID_TASK_STATUSES:
+        raise ValueError(f"Invalid task status: {status}")
+
+    normalized_candidate = normalize_task_text(task_text)
+    if not normalized_candidate:
+        return None
+
+    recent_tasks = get_tasks(user_id=user_id, status=status, limit=limit)
+    for task in recent_tasks:
+        existing_normalized = normalize_task_text(task.get("task_text", ""))
+        if existing_normalized == normalized_candidate:
+            return task
+
+    return None
+
+
 def add_task(
     user_id: str,
     source_message: str,
@@ -156,6 +188,7 @@ def add_task(
     channel_id: str | None = None,
     session_id: str | None = None,
     status: str = "pending",
+    dedupe: bool = True,
 ) -> Dict:
     if status not in VALID_TASK_STATUSES:
         raise ValueError(f"Invalid task status: {status}")
@@ -165,6 +198,26 @@ def add_task(
     normalized_task_text = truncate_task_text(task_text)
     if not normalized_task_text:
         raise ValueError("task_text cannot be empty")
+
+    if dedupe:
+        existing_task = find_recent_matching_task(
+            user_id=user_id,
+            task_text=normalized_task_text,
+            status=status,
+        )
+        if existing_task:
+            return {
+                "id": existing_task["id"],
+                "user_id": existing_task["user_id"],
+                "channel_id": existing_task["channel_id"],
+                "session_id": existing_task["session_id"],
+                "status": existing_task["status"],
+                "source_message": existing_task["source_message"],
+                "task_text": existing_task["task_text"],
+                "assistant_commitment": existing_task["assistant_commitment"],
+                "created": False,
+                "deduped": True,
+            }
 
     with get_connection() as conn:
         cursor = conn.execute(
@@ -203,6 +256,8 @@ def add_task(
         "source_message": source_message,
         "task_text": normalized_task_text,
         "assistant_commitment": assistant_commitment,
+        "created": True,
+        "deduped": False,
     }
 
 

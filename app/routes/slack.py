@@ -517,7 +517,7 @@ async def slack_events(request: Request):
         if should_capture_task_from_user_message(user_text):
             task_text = build_task_text_from_user_message(user_text)
             if task_text:
-                add_task(
+                task_result = add_task(
                     user_id=user_id,
                     channel_id=channel_id,
                     session_id=channel_id,
@@ -526,7 +526,11 @@ async def slack_events(request: Request):
                     assistant_commitment="Saved as a pending task.",
                     status="pending",
                 )
-                response_text = f"Saved to pending tasks: {task_text}"
+                result_task_text = task_result.get("task_text", task_text)
+                if task_result.get("deduped"):
+                    response_text = f"Already in pending tasks: {result_task_text}"
+                else:
+                    response_text = f"Saved to pending tasks: {result_task_text}"
             else:
                 response_text = "I could not figure out the task text. Please try again."
 
@@ -617,7 +621,7 @@ async def slack_events(request: Request):
         active_model = get_provider_model(effective_provider) or "not set"
 
         if response_contains_commitment(response_text):
-            add_task(
+            task_result = add_task(
                 user_id=user_id,
                 channel_id=channel_id,
                 session_id=channel_id,
@@ -626,6 +630,9 @@ async def slack_events(request: Request):
                 assistant_commitment=response_text,
                 status="pending",
             )
+            if task_result.get("deduped"):
+                result_task_text = task_result.get("task_text", user_text)
+                print(f"Skipped duplicate commitment task for user {user_id}: {result_task_text}")
 
         post_message(channel_id, response_text)
 
