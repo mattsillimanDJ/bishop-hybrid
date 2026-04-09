@@ -31,6 +31,8 @@ from app.services.task_service import (
     build_task_text_from_user_message,
     clear_tasks,
     get_tasks,
+    mark_task_done,
+    remove_task,
     should_capture_task_from_user_message,
 )
 
@@ -80,6 +82,20 @@ CLEAR_TASK_MESSAGES = {
     "clear pending",
     "clear pending tasks",
 }
+
+COMPLETE_TASK_PATTERNS = [
+    r"^\s*done\s+",
+    r"^\s*complete task\s+",
+    r"^\s*complete\s+",
+    r"^\s*mark done\s+",
+    r"^\s*mark task done\s+",
+]
+
+REMOVE_TASK_PATTERNS = [
+    r"^\s*remove task\s+",
+    r"^\s*delete task\s+",
+    r"^\s*drop task\s+",
+]
 
 
 def post_message(channel: str, text: str):
@@ -158,6 +174,9 @@ def help_text() -> str:
         "* add task ...\n"
         "* save task ...\n"
         "* remind me ...\n"
+        "* done ...\n"
+        "* complete task ...\n"
+        "* remove task ...\n"
         "* mode default\n"
         "* mode work\n"
         "* mode personal\n"
@@ -376,6 +395,38 @@ def build_status_text(user_id: str) -> tuple[str, str]:
     return response_text, active_model
 
 
+def extract_task_text_for_completion(message: str) -> str | None:
+    original = (message or "").strip()
+    if not original:
+        return None
+
+    lowered = original.lower()
+    for pattern in COMPLETE_TASK_PATTERNS:
+        match = re.match(pattern, lowered)
+        if match:
+            extracted = original[match.end():].strip()
+            extracted = re.sub(r"\s+", " ", extracted).strip()
+            return extracted or None
+
+    return None
+
+
+def extract_task_text_for_removal(message: str) -> str | None:
+    original = (message or "").strip()
+    if not original:
+        return None
+
+    lowered = original.lower()
+    for pattern in REMOVE_TASK_PATTERNS:
+        match = re.match(pattern, lowered)
+        if match:
+            extracted = original[match.end():].strip()
+            extracted = re.sub(r"\s+", " ", extracted).strip()
+            return extracted or None
+
+    return None
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request):
     body = await request.json()
@@ -509,6 +560,30 @@ async def slack_events(request: Request):
         if lowered in CLEAR_TASK_MESSAGES:
             result = clear_tasks(user_id=user_id, status="pending")
             response_text = f"Cleared {result['deleted']} pending task(s)."
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        completed_task_text = extract_task_text_for_completion(user_text)
+        if completed_task_text:
+            result = mark_task_done(user_id=user_id, task_text=completed_task_text)
+            if result["updated"]:
+                response_text = f"Marked done: {result['task']['task_text']}"
+            else:
+                response_text = f"I could not find a pending task matching: {completed_task_text}"
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        removed_task_text = extract_task_text_for_removal(user_text)
+        if removed_task_text:
+            result = remove_task(user_id=user_id, task_text=removed_task_text, status="pending")
+            if result["deleted"]:
+                response_text = f"Removed pending task: {result['task']['task_text']}"
+            else:
+                response_text = f"I could not find a pending task matching: {removed_task_text}"
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)

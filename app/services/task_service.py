@@ -180,6 +180,29 @@ def find_recent_matching_task(
     return None
 
 
+def find_matching_task_by_text(
+    user_id: str,
+    task_text: str,
+    *,
+    status: str = "pending",
+    limit: int = 50,
+) -> Dict | None:
+    if status not in VALID_TASK_STATUSES:
+        raise ValueError(f"Invalid task status: {status}")
+
+    normalized_candidate = normalize_task_text(task_text)
+    if not normalized_candidate:
+        return None
+
+    tasks = get_tasks(user_id=user_id, status=status, limit=limit)
+    for task in tasks:
+        existing_normalized = normalize_task_text(task.get("task_text", ""))
+        if existing_normalized == normalized_candidate:
+            return task
+
+    return None
+
+
 def add_task(
     user_id: str,
     source_message: str,
@@ -284,6 +307,65 @@ def get_tasks(user_id: str, status: str | None = None, limit: int = 10) -> List[
         rows = conn.execute(query, params).fetchall()
 
     return [dict(row) for row in rows]
+
+
+def mark_task_done(
+    user_id: str,
+    task_text: str,
+    *,
+    limit: int = 50,
+) -> Dict:
+    init_task_table()
+
+    matching_task = find_matching_task_by_text(
+        user_id=user_id,
+        task_text=task_text,
+        status="pending",
+        limit=limit,
+    )
+    if not matching_task:
+        return {"updated": False, "task": None}
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'done',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (matching_task["id"],),
+        )
+        conn.commit()
+
+    updated_task = dict(matching_task)
+    updated_task["status"] = "done"
+    return {"updated": True, "task": updated_task}
+
+
+def remove_task(
+    user_id: str,
+    task_text: str,
+    *,
+    status: str = "pending",
+    limit: int = 50,
+) -> Dict:
+    init_task_table()
+
+    matching_task = find_matching_task_by_text(
+        user_id=user_id,
+        task_text=task_text,
+        status=status,
+        limit=limit,
+    )
+    if not matching_task:
+        return {"deleted": False, "task": None}
+
+    with get_connection() as conn:
+        conn.execute("DELETE FROM tasks WHERE id = ?", (matching_task["id"],))
+        conn.commit()
+
+    return {"deleted": True, "task": matching_task}
 
 
 def clear_tasks(user_id: str, status: str | None = None) -> Dict:
