@@ -3,6 +3,12 @@ import pytest
 from app.services import chat_service, task_service
 
 
+@pytest.fixture(autouse=True)
+def use_temp_task_db(tmp_path, monkeypatch):
+    test_db_path = tmp_path / "bishop_memory_test.db"
+    monkeypatch.setattr(task_service, "DB_PATH", test_db_path)
+
+
 def test_response_contains_commitment_true():
     assert chat_service.response_contains_commitment("On it. I'll proceed with that.") is True
 
@@ -105,3 +111,185 @@ def test_add_task_rejects_empty_task_text():
             task_text="",
             assistant_commitment="Saved as a task.",
         )
+
+
+def test_add_task_creates_pending_task():
+    result = task_service.add_task(
+        user_id="U123",
+        channel_id="C123",
+        session_id="C123",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    assert result["created"] is True
+    assert result["deduped"] is False
+    assert result["status"] == "pending"
+    assert result["task_text"] == "review the deck"
+
+    tasks = task_service.get_tasks(user_id="U123", status="pending")
+    assert len(tasks) == 1
+    assert tasks[0]["task_text"] == "review the deck"
+
+
+def test_add_task_dedupes_matching_pending_task():
+    first = task_service.add_task(
+        user_id="U123",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    second = task_service.add_task(
+        user_id="U123",
+        source_message="add task Review the deck!!!",
+        task_text="Review the deck!!!",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    assert first["created"] is True
+    assert second["created"] is False
+    assert second["deduped"] is True
+    assert second["task_text"] == "review the deck"
+
+    tasks = task_service.get_tasks(user_id="U123", status="pending")
+    assert len(tasks) == 1
+
+
+def test_mark_task_done_marks_matching_pending_task_done():
+    task_service.add_task(
+        user_id="U123",
+        source_message="add task send the invoice",
+        task_text="send the invoice",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    result = task_service.mark_task_done(
+        user_id="U123",
+        task_text="Send the invoice!!!",
+    )
+
+    assert result["updated"] is True
+    assert result["task"]["task_text"] == "send the invoice"
+    assert result["task"]["status"] == "done"
+
+    pending_tasks = task_service.get_tasks(user_id="U123", status="pending")
+    done_tasks = task_service.get_tasks(user_id="U123", status="done")
+
+    assert pending_tasks == []
+    assert len(done_tasks) == 1
+    assert done_tasks[0]["task_text"] == "send the invoice"
+    assert done_tasks[0]["status"] == "done"
+
+
+def test_mark_task_done_returns_false_when_no_pending_match():
+    task_service.add_task(
+        user_id="U123",
+        source_message="add task send the invoice",
+        task_text="send the invoice",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    result = task_service.mark_task_done(
+        user_id="U123",
+        task_text="review the deck",
+    )
+
+    assert result["updated"] is False
+    assert result["task"] is None
+
+    pending_tasks = task_service.get_tasks(user_id="U123", status="pending")
+    assert len(pending_tasks) == 1
+    assert pending_tasks[0]["task_text"] == "send the invoice"
+
+
+def test_remove_task_deletes_matching_pending_task():
+    task_service.add_task(
+        user_id="U123",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    result = task_service.remove_task(
+        user_id="U123",
+        task_text="Review the deck!!!",
+        status="pending",
+    )
+
+    assert result["deleted"] is True
+    assert result["task"]["task_text"] == "review the deck"
+    assert result["task"]["status"] == "pending"
+
+    pending_tasks = task_service.get_tasks(user_id="U123", status="pending")
+    assert pending_tasks == []
+
+
+def test_remove_task_returns_false_when_no_pending_match():
+    task_service.add_task(
+        user_id="U123",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    result = task_service.remove_task(
+        user_id="U123",
+        task_text="send the invoice",
+        status="pending",
+    )
+
+    assert result["deleted"] is False
+    assert result["task"] is None
+
+    pending_tasks = task_service.get_tasks(user_id="U123", status="pending")
+    assert len(pending_tasks) == 1
+    assert pending_tasks[0]["task_text"] == "review the deck"
+
+
+def test_remove_task_can_delete_done_task_when_status_is_done():
+    task_service.add_task(
+        user_id="U123",
+        source_message="add task send the invoice",
+        task_text="send the invoice",
+        assistant_commitment="Saved as a pending task.",
+    )
+    task_service.mark_task_done(user_id="U123", task_text="send the invoice")
+
+    result = task_service.remove_task(
+        user_id="U123",
+        task_text="send the invoice",
+        status="done",
+    )
+
+    assert result["deleted"] is True
+    assert result["task"]["task_text"] == "send the invoice"
+    assert result["task"]["status"] == "done"
+
+    done_tasks = task_service.get_tasks(user_id="U123", status="done")
+    assert done_tasks == []
+
+
+def test_clear_tasks_deletes_only_requested_status():
+    task_service.add_task(
+        user_id="U123",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+    task_service.add_task(
+        user_id="U123",
+        source_message="add task send the invoice",
+        task_text="send the invoice",
+        assistant_commitment="Saved as a pending task.",
+    )
+    task_service.mark_task_done(user_id="U123", task_text="send the invoice")
+
+    result = task_service.clear_tasks(user_id="U123", status="pending")
+
+    assert result["deleted"] == 1
+    assert task_service.get_tasks(user_id="U123", status="pending") == []
+
+    done_tasks = task_service.get_tasks(user_id="U123", status="done")
+    assert len(done_tasks) == 1
