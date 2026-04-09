@@ -200,6 +200,20 @@ def test_provider_command(monkeypatch):
 
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "get_provider_override", lambda: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_provider_resolution",
+        lambda: {
+            "override": None,
+            "override_ok": False,
+            "override_message": "No override set",
+            "default_provider": "openai",
+            "default_ok": True,
+            "default_message": "OpenAI configuration looks valid",
+            "effective_provider": "openai",
+            "effective_from": "default",
+        },
+    )
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
     monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
@@ -223,6 +237,20 @@ def test_status_command_includes_pending_tasks(monkeypatch):
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "get_provider_override", lambda: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_provider_resolution",
+        lambda: {
+            "override": None,
+            "override_ok": False,
+            "override_message": "No override set",
+            "default_provider": "openai",
+            "default_ok": True,
+            "default_message": "OpenAI configuration looks valid",
+            "effective_provider": "openai",
+            "effective_from": "default",
+        },
+    )
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
     monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "validate_provider_config", lambda provider: (True, "ok"))
@@ -312,6 +340,40 @@ def test_add_task_command_creates_pending_task(monkeypatch):
     assert created_tasks[0]["assistant_commitment"] == "Saved as a pending task."
 
 
+def test_add_task_command_returns_existing_pending_task_message_when_deduped(monkeypatch):
+    reset_route_state()
+    captured = {}
+    created_tasks = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_task(**kwargs):
+        created_tasks.append(kwargs)
+        return {
+            "id": 1,
+            "task_text": "review the deck",
+            "deduped": True,
+            "created": False,
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_task", fake_add_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("add task review the deck", event_id="evt-add-task-deduped"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Already in pending tasks: review the deck"
+    assert len(created_tasks) == 1
+    assert created_tasks[0]["task_text"] == "review the deck"
+
+
 def test_remind_me_request_creates_pending_task(monkeypatch):
     reset_route_state()
     captured = {}
@@ -339,6 +401,40 @@ def test_remind_me_request_creates_pending_task(monkeypatch):
     assert captured["text"] == "Saved to pending tasks: review the deck"
     assert len(created_tasks) == 1
     assert created_tasks[0]["source_message"] == "remind me tomorrow to review the deck"
+    assert created_tasks[0]["task_text"] == "review the deck"
+
+
+def test_remind_me_request_returns_existing_pending_task_message_when_deduped(monkeypatch):
+    reset_route_state()
+    captured = {}
+    created_tasks = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_task(**kwargs):
+        created_tasks.append(kwargs)
+        return {
+            "id": 1,
+            "task_text": "review the deck",
+            "deduped": True,
+            "created": False,
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_task", fake_add_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("remind me tomorrow to review the deck", event_id="evt-remind-task-deduped"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Already in pending tasks: review the deck"
+    assert len(created_tasks) == 1
     assert created_tasks[0]["task_text"] == "review the deck"
 
 
@@ -370,6 +466,41 @@ def test_normal_chat_message_creates_task_on_commitment(monkeypatch):
     assert captured["text"] == "On it. I'll proceed with 1, 2, and 3."
     assert len(created_tasks) == 1
     assert created_tasks[0]["source_message"] == "please do 1, 2, and 3"
+    assert created_tasks[0]["task_text"] == "please do 1, 2, and 3"
+
+
+def test_normal_chat_message_skips_duplicate_commitment_task(monkeypatch):
+    reset_route_state()
+    captured = {}
+    created_tasks = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_task(**kwargs):
+        created_tasks.append(kwargs)
+        return {
+            "id": 1,
+            "task_text": "please do 1, 2, and 3",
+            "deduped": True,
+            "created": False,
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "On it. I'll proceed with 1, 2, and 3.")
+    monkeypatch.setattr(slack_route, "response_contains_commitment", lambda response_text: True)
+    monkeypatch.setattr(slack_route, "add_task", fake_add_task)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("please do 1, 2, and 3", event_id="evt-chat-deduped"))
+
+    assert response.status_code == 200
+    assert captured["text"] == "On it. I'll proceed with 1, 2, and 3."
+    assert len(created_tasks) == 1
     assert created_tasks[0]["task_text"] == "please do 1, 2, and 3"
 
 
