@@ -110,6 +110,15 @@ COMPLETE_TASK_PATTERNS = [
     r"^\s*mark task done\s+",
 ]
 
+REMOVE_DONE_TASK_PATTERNS = [
+    r"^\s*remove done task\s+",
+    r"^\s*remove completed task\s+",
+    r"^\s*delete done task\s+",
+    r"^\s*delete completed task\s+",
+    r"^\s*drop done task\s+",
+    r"^\s*drop completed task\s+",
+]
+
 REMOVE_TASK_PATTERNS = [
     r"^\s*remove task\s+",
     r"^\s*delete task\s+",
@@ -202,6 +211,8 @@ def help_text() -> str:
         "* done ...\n"
         "* complete task ...\n"
         "* remove task ...\n"
+        "* remove done task ...\n"
+        "* remove completed task ...\n"
         "* mode default\n"
         "* mode work\n"
         "* mode personal\n"
@@ -466,6 +477,22 @@ def extract_task_text_for_completion(message: str) -> str | None:
     return None
 
 
+def extract_task_text_for_done_removal(message: str) -> str | None:
+    original = (message or "").strip()
+    if not original:
+        return None
+
+    lowered = original.lower()
+    for pattern in REMOVE_DONE_TASK_PATTERNS:
+        match = re.match(pattern, lowered)
+        if match:
+            extracted = original[match.end():].strip()
+            extracted = re.sub(r"\s+", " ", extracted).strip()
+            return extracted or None
+
+    return None
+
+
 def extract_task_text_for_removal(message: str) -> str | None:
     original = (message or "").strip()
     if not original:
@@ -660,6 +687,18 @@ async def slack_events(request: Request):
                 response_text = f"Marked done: {result['task']['task_text']}"
             else:
                 response_text = f"I could not find a pending task matching: {completed_task_text}"
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        removed_done_task_text = extract_task_text_for_done_removal(user_text)
+        if removed_done_task_text:
+            result = remove_task(user_id=user_id, task_text=removed_done_task_text, status="done")
+            if result["deleted"]:
+                response_text = f"Removed completed task: {result['task']['task_text']}"
+            else:
+                response_text = f"I could not find a completed task matching: {removed_done_task_text}"
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)

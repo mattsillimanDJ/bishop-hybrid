@@ -192,6 +192,8 @@ def test_help_command(monkeypatch):
     assert "show all tasks" in captured["text"]
     assert "clear done" in captured["text"]
     assert "clear completed" in captured["text"]
+    assert "remove done task" in captured["text"]
+    assert "remove completed task" in captured["text"]
     assert "add task" in captured["text"]
     assert "remind me" in captured["text"]
 
@@ -277,7 +279,6 @@ def test_show_pending_command(monkeypatch):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
 
-    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(
         slack_route,
         "get_tasks",
@@ -289,6 +290,7 @@ def test_show_pending_command(monkeypatch):
             }
         ] if status == "pending" else [],
     )
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
@@ -307,7 +309,6 @@ def test_show_completed_command(monkeypatch):
         captured["text"] = text
         return {"ok": True, "ts": "123"}
 
-    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(
         slack_route,
         "get_tasks",
@@ -319,6 +320,7 @@ def test_show_completed_command(monkeypatch):
             }
         ] if status == "done" else [],
     )
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
@@ -699,6 +701,67 @@ def test_done_command_returns_not_found_message_when_no_pending_match(monkeypatc
 
     assert response.status_code == 200
     assert captured["text"] == "I could not find a pending task matching: send the invoice"
+
+
+def test_remove_done_task_command_removes_completed_task(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_remove_task(user_id, task_text, status="pending"):
+        assert user_id == "U123"
+        assert task_text == "send the invoice"
+        assert status == "done"
+        return {
+            "deleted": True,
+            "task": {
+                "task_text": "send the invoice",
+            },
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "remove_task", fake_remove_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("remove done task send the invoice", event_id="evt-remove-done-task"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Removed completed task: send the invoice"
+
+
+def test_remove_completed_task_command_returns_not_found_message(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_remove_task(user_id, task_text, status="pending"):
+        assert user_id == "U123"
+        assert task_text == "send the invoice"
+        assert status == "done"
+        return {"deleted": False}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "remove_task", fake_remove_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("remove completed task send the invoice", event_id="evt-remove-completed-task-missing"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "I could not find a completed task matching: send the invoice"
 
 
 def test_remove_task_command_removes_pending_task(monkeypatch):
