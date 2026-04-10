@@ -450,12 +450,74 @@ def build_provider_summary_text() -> tuple[str, str]:
     return "\n".join(lines), active_model
 
 
-def build_status_text(user_id: str) -> tuple[str, str]:
+def get_tasks_for_lane(user_id: str, lane: str, status: str, limit: int = 10):
+    try:
+        return get_tasks(user_id=user_id, lane=lane, status=status, limit=limit)
+    except TypeError:
+        return get_tasks(user_id=user_id, status=status, limit=limit)
+
+
+def clear_tasks_for_lane(user_id: str, lane: str, status: str):
+    try:
+        return clear_tasks(user_id=user_id, lane=lane, status=status)
+    except TypeError:
+        return clear_tasks(user_id=user_id, status=status)
+
+
+def mark_task_done_for_lane(user_id: str, lane: str, task_text: str):
+    try:
+        return mark_task_done(user_id=user_id, lane=lane, task_text=task_text)
+    except TypeError:
+        return mark_task_done(user_id=user_id, task_text=task_text)
+
+
+def remove_task_for_lane(user_id: str, lane: str, task_text: str, status: str):
+    try:
+        return remove_task(user_id=user_id, lane=lane, task_text=task_text, status=status)
+    except TypeError:
+        return remove_task(user_id=user_id, task_text=task_text, status=status)
+
+
+def add_task_for_lane(
+    *,
+    user_id: str,
+    lane: str,
+    channel_id: str,
+    session_id: str,
+    source_message: str,
+    task_text: str,
+    assistant_commitment: str,
+    status: str = "pending",
+):
+    try:
+        return add_task(
+            user_id=user_id,
+            lane=lane,
+            channel_id=channel_id,
+            session_id=session_id,
+            source_message=source_message,
+            task_text=task_text,
+            assistant_commitment=assistant_commitment,
+            status=status,
+        )
+    except TypeError:
+        return add_task(
+            user_id=user_id,
+            channel_id=channel_id,
+            session_id=session_id,
+            source_message=source_message,
+            task_text=task_text,
+            assistant_commitment=assistant_commitment,
+            status=status,
+        )
+
+
+def build_status_text(user_id: str, lane: str) -> tuple[str, str]:
     current_mode = get_mode(user_id)
     resolution = get_provider_resolution()
     effective_provider = resolution["effective_provider"]
     active_model = get_provider_model(effective_provider) or "not set"
-    pending_tasks = get_tasks(user_id=user_id, status="pending", limit=10)
+    pending_tasks = get_tasks_for_lane(user_id=user_id, lane=lane, status="pending", limit=10)
 
     openai_ok, openai_message = validate_provider_config("openai")
     claude_ok, claude_message = validate_provider_config("claude")
@@ -675,7 +737,7 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered in TASK_QUERY_MESSAGES:
-            tasks = get_tasks(user_id=user_id, status="pending", limit=10)
+            tasks = get_tasks_for_lane(user_id=user_id, lane=lane, status="pending", limit=10)
             response_text = format_tasks_for_slack(
                 tasks,
                 title="Pending tasks:",
@@ -687,7 +749,7 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered in DONE_TASK_QUERY_MESSAGES:
-            tasks = get_tasks(user_id=user_id, status="done", limit=10)
+            tasks = get_tasks_for_lane(user_id=user_id, lane=lane, status="done", limit=10)
             response_text = format_tasks_for_slack(
                 tasks,
                 title="Completed tasks:",
@@ -699,8 +761,8 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered in ALL_TASK_QUERY_MESSAGES:
-            pending_tasks = get_tasks(user_id=user_id, status="pending", limit=10)
-            done_tasks = get_tasks(user_id=user_id, status="done", limit=10)
+            pending_tasks = get_tasks_for_lane(user_id=user_id, lane=lane, status="pending", limit=10)
+            done_tasks = get_tasks_for_lane(user_id=user_id, lane=lane, status="done", limit=10)
             response_text = format_all_tasks_for_slack(pending_tasks, done_tasks)
 
             post_message(channel_id, response_text)
@@ -708,7 +770,7 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered in CLEAR_TASK_MESSAGES:
-            result = clear_tasks(user_id=user_id, status="pending")
+            result = clear_tasks_for_lane(user_id=user_id, lane=lane, status="pending")
             response_text = f"Cleared {result['deleted']} pending task(s)."
 
             post_message(channel_id, response_text)
@@ -716,7 +778,7 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered in CLEAR_DONE_TASK_MESSAGES:
-            result = clear_tasks(user_id=user_id, status="done")
+            result = clear_tasks_for_lane(user_id=user_id, lane=lane, status="done")
             response_text = f"Cleared {result['deleted']} completed task(s)."
 
             post_message(channel_id, response_text)
@@ -725,7 +787,7 @@ async def slack_events(request: Request):
 
         completed_task_text = extract_task_text_for_completion(user_text)
         if completed_task_text:
-            result = mark_task_done(user_id=user_id, task_text=completed_task_text)
+            result = mark_task_done_for_lane(user_id=user_id, lane=lane, task_text=completed_task_text)
             if result["updated"]:
                 response_text = f"Marked done: {result['task']['task_text']}"
             else:
@@ -737,7 +799,12 @@ async def slack_events(request: Request):
 
         removed_done_task_text = extract_task_text_for_done_removal(user_text)
         if removed_done_task_text:
-            result = remove_task(user_id=user_id, task_text=removed_done_task_text, status="done")
+            result = remove_task_for_lane(
+                user_id=user_id,
+                lane=lane,
+                task_text=removed_done_task_text,
+                status="done",
+            )
             if result["deleted"]:
                 response_text = f"Removed completed task: {result['task']['task_text']}"
             else:
@@ -749,7 +816,12 @@ async def slack_events(request: Request):
 
         removed_task_text = extract_task_text_for_removal(user_text)
         if removed_task_text:
-            result = remove_task(user_id=user_id, task_text=removed_task_text, status="pending")
+            result = remove_task_for_lane(
+                user_id=user_id,
+                lane=lane,
+                task_text=removed_task_text,
+                status="pending",
+            )
             if result["deleted"]:
                 response_text = f"Removed pending task: {result['task']['task_text']}"
             else:
@@ -762,8 +834,9 @@ async def slack_events(request: Request):
         if should_capture_task_from_user_message(user_text):
             task_text = build_task_text_from_user_message(user_text)
             if task_text:
-                task_result = add_task(
+                task_result = add_task_for_lane(
                     user_id=user_id,
+                    lane=lane,
                     channel_id=channel_id,
                     session_id=channel_id,
                     source_message=user_text,
@@ -790,7 +863,10 @@ async def slack_events(request: Request):
                 set_mode(user_id, requested_mode)
                 response_text = f"Mode set to {requested_mode}."
             else:
-                response_text = "Unknown mode. Available modes: " + ", ".join(sorted(VALID_MODES))
+                response_text = (
+                    "Unknown mode. Available modes: "
+                    + ", ".join(sorted(VALID_MODES))
+                )
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
@@ -820,7 +896,7 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered in {"status", "show config"}:
-            response_text, active_model = build_status_text(user_id)
+            response_text, active_model = build_status_text(user_id, lane)
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, model=active_model)
@@ -837,11 +913,17 @@ async def slack_events(request: Request):
                 ok, message = validate_provider_config(requested_provider)
                 if not ok:
                     response_text, active_model = build_provider_summary_text()
-                    response_text = f"Cannot switch to {requested_provider}: {message}\n" + response_text
+                    response_text = (
+                        f"Cannot switch to {requested_provider}: {message}\n"
+                        + response_text
+                    )
                 else:
                     set_provider_override(requested_provider)
                     response_text, active_model = build_provider_summary_text()
-                    response_text = f"Provider override set to {requested_provider}.\n" + response_text
+                    response_text = (
+                        f"Provider override set to {requested_provider}.\n"
+                        + response_text
+                    )
             else:
                 active_model = get_active_model_for_effective_provider()
                 response_text = "Unknown provider. Available options: openai, claude, default."
@@ -857,8 +939,9 @@ async def slack_events(request: Request):
         active_model = get_provider_model(effective_provider) or "not set"
 
         if response_contains_commitment(response_text):
-            task_result = add_task(
+            task_result = add_task_for_lane(
                 user_id=user_id,
+                lane=lane,
                 channel_id=channel_id,
                 session_id=channel_id,
                 source_message=user_text,
@@ -868,7 +951,7 @@ async def slack_events(request: Request):
             )
             if task_result.get("deduped"):
                 result_task_text = task_result.get("task_text", user_text)
-                print(f"Skipped duplicate commitment task for user {user_id}: {result_task_text}")
+                print(f"Skipped duplicate commitment task for user {user_id} in {lane}: {result_task_text}")
 
         post_message(channel_id, response_text)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "data" / "bishop_memory.db"
@@ -42,6 +42,7 @@ def init_task_table() -> None:
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
+                lane TEXT NOT NULL DEFAULT 'general',
                 channel_id TEXT,
                 session_id TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -53,6 +54,17 @@ def init_task_table() -> None:
             )
             """
         )
+
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
+        }
+
+        if "lane" not in columns:
+            conn.execute(
+                "ALTER TABLE tasks ADD COLUMN lane TEXT NOT NULL DEFAULT 'general'"
+            )
+
         conn.commit()
 
 
@@ -159,7 +171,8 @@ def build_task_text_from_user_message(message: str) -> str | None:
 
 def find_recent_matching_task(
     user_id: str,
-    task_text: str,
+    lane: str = "general",
+    task_text: str = "",
     *,
     status: str = "pending",
     limit: int = DEFAULT_TASK_DEDUPE_LOOKBACK_LIMIT,
@@ -171,7 +184,7 @@ def find_recent_matching_task(
     if not normalized_candidate:
         return None
 
-    recent_tasks = get_tasks(user_id=user_id, status=status, limit=limit)
+    recent_tasks = get_tasks(user_id=user_id, lane=lane, status=status, limit=limit)
     for task in recent_tasks:
         existing_normalized = normalize_task_text(task.get("task_text", ""))
         if existing_normalized == normalized_candidate:
@@ -182,7 +195,8 @@ def find_recent_matching_task(
 
 def find_matching_task_by_text(
     user_id: str,
-    task_text: str,
+    lane: str = "general",
+    task_text: str = "",
     *,
     status: str = "pending",
     limit: int = 50,
@@ -194,7 +208,7 @@ def find_matching_task_by_text(
     if not normalized_candidate:
         return None
 
-    tasks = get_tasks(user_id=user_id, status=status, limit=limit)
+    tasks = get_tasks(user_id=user_id, lane=lane, status=status, limit=limit)
     for task in tasks:
         existing_normalized = normalize_task_text(task.get("task_text", ""))
         if existing_normalized == normalized_candidate:
@@ -208,8 +222,9 @@ def add_task(
     source_message: str,
     task_text: str,
     assistant_commitment: str,
-    channel_id: str | None = None,
-    session_id: str | None = None,
+    lane: str = "general",
+    channel_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     status: str = "pending",
     dedupe: bool = True,
 ) -> Dict:
@@ -218,6 +233,7 @@ def add_task(
 
     init_task_table()
 
+    normalized_lane = (lane or "general").strip().lower()
     normalized_task_text = truncate_task_text(task_text)
     if not normalized_task_text:
         raise ValueError("task_text cannot be empty")
@@ -225,6 +241,7 @@ def add_task(
     if dedupe:
         existing_task = find_recent_matching_task(
             user_id=user_id,
+            lane=normalized_lane,
             task_text=normalized_task_text,
             status=status,
         )
@@ -232,6 +249,7 @@ def add_task(
             return {
                 "id": existing_task["id"],
                 "user_id": existing_task["user_id"],
+                "lane": existing_task["lane"],
                 "channel_id": existing_task["channel_id"],
                 "session_id": existing_task["session_id"],
                 "status": existing_task["status"],
@@ -247,6 +265,7 @@ def add_task(
             """
             INSERT INTO tasks (
                 user_id,
+                lane,
                 channel_id,
                 session_id,
                 status,
@@ -255,10 +274,11 @@ def add_task(
                 assistant_commitment,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (
                 user_id,
+                normalized_lane,
                 channel_id,
                 session_id,
                 status,
@@ -273,6 +293,7 @@ def add_task(
     return {
         "id": task_id,
         "user_id": user_id,
+        "lane": normalized_lane,
         "channel_id": channel_id,
         "session_id": session_id,
         "status": status,
@@ -284,15 +305,22 @@ def add_task(
     }
 
 
-def get_tasks(user_id: str, status: str | None = None, limit: int = 10) -> List[Dict]:
+def get_tasks(
+    user_id: str,
+    lane: str = "general",
+    status: str | None = None,
+    limit: int = 10,
+) -> List[Dict]:
     init_task_table()
 
+    normalized_lane = (lane or "general").strip().lower()
+
     query = (
-        "SELECT id, user_id, channel_id, session_id, status, source_message, "
+        "SELECT id, user_id, lane, channel_id, session_id, status, source_message, "
         "task_text, assistant_commitment, created_at, updated_at "
-        "FROM tasks WHERE user_id = ?"
+        "FROM tasks WHERE user_id = ? AND lane = ?"
     )
-    params: list = [user_id]
+    params: list = [user_id, normalized_lane]
 
     if status:
         if status not in VALID_TASK_STATUSES:
@@ -312,6 +340,7 @@ def get_tasks(user_id: str, status: str | None = None, limit: int = 10) -> List[
 def mark_task_done(
     user_id: str,
     task_text: str,
+    lane: str = "general",
     *,
     limit: int = 50,
 ) -> Dict:
@@ -319,6 +348,7 @@ def mark_task_done(
 
     matching_task = find_matching_task_by_text(
         user_id=user_id,
+        lane=lane,
         task_text=task_text,
         status="pending",
         limit=limit,
@@ -346,6 +376,7 @@ def mark_task_done(
 def remove_task(
     user_id: str,
     task_text: str,
+    lane: str = "general",
     *,
     status: str = "pending",
     limit: int = 50,
@@ -354,6 +385,7 @@ def remove_task(
 
     matching_task = find_matching_task_by_text(
         user_id=user_id,
+        lane=lane,
         task_text=task_text,
         status=status,
         limit=limit,
@@ -368,11 +400,17 @@ def remove_task(
     return {"deleted": True, "task": matching_task}
 
 
-def clear_tasks(user_id: str, status: str | None = None) -> Dict:
+def clear_tasks(
+    user_id: str,
+    lane: str = "general",
+    status: str | None = None,
+) -> Dict:
     init_task_table()
 
-    query = "DELETE FROM tasks WHERE user_id = ?"
-    params: list = [user_id]
+    normalized_lane = (lane or "general").strip().lower()
+
+    query = "DELETE FROM tasks WHERE user_id = ? AND lane = ?"
+    params: list = [user_id, normalized_lane]
 
     if status:
         if status not in VALID_TASK_STATUSES:
