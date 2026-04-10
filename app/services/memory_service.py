@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "data" / "bishop_memory.db"
@@ -25,9 +25,21 @@ def init_db():
             user_id TEXT NOT NULL,
             category TEXT NOT NULL,
             content TEXT NOT NULL,
+            lane TEXT DEFAULT 'matt',
+            visibility TEXT DEFAULT 'private',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    try:
+        cur.execute("ALTER TABLE memory_entries ADD COLUMN lane TEXT DEFAULT 'matt'")
+    except Exception:
+        pass
+
+    try:
+        cur.execute("ALTER TABLE memory_entries ADD COLUMN visibility TEXT DEFAULT 'private'")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -56,10 +68,16 @@ def seed_memory():
     for item in items:
         cur.execute(
             """
-            INSERT INTO memory_entries (user_id, category, content)
-            VALUES (?, ?, ?)
+            INSERT INTO memory_entries (user_id, category, content, lane, visibility)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (item["user_id"], item["category"], item["content"])
+            (
+                item["user_id"],
+                item["category"],
+                item["content"],
+                item.get("lane", "matt"),
+                item.get("visibility", "private"),
+            )
         )
         inserted += 1
 
@@ -69,21 +87,42 @@ def seed_memory():
     return {"seeded": inserted, "message": "Seed memory loaded"}
 
 
-def get_memories(user_id: str = "matt", limit: int = 20) -> List[Dict]:
+def get_memories(
+    user_id: str = "matt",
+    lane: Optional[str] = None,
+    limit: int = 20,
+) -> List[Dict]:
     init_db()
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT id, user_id, category, content, created_at
-        FROM memory_entries
-        WHERE user_id = ?
-        ORDER BY created_at DESC, id DESC
-        LIMIT ?
-        """,
-        (user_id, limit)
-    )
+    if lane:
+        cur.execute(
+            """
+            SELECT id, user_id, category, content, lane, visibility, created_at
+            FROM memory_entries
+            WHERE user_id = ?
+              AND (
+                    lane = ?
+                    OR visibility = 'shared'
+                    OR visibility = 'global'
+                  )
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, lane, limit),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, user_id, category, content, lane, visibility, created_at
+            FROM memory_entries
+            WHERE user_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
 
     rows = cur.fetchall()
     conn.close()
@@ -91,17 +130,23 @@ def get_memories(user_id: str = "matt", limit: int = 20) -> List[Dict]:
     return [dict(row) for row in rows]
 
 
-def add_memory(user_id: str, category: str, content: str) -> Dict:
+def add_memory(
+    user_id: str,
+    category: str,
+    content: str,
+    lane: str = "matt",
+    visibility: str = "private",
+) -> Dict:
     init_db()
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute(
         """
-        INSERT INTO memory_entries (user_id, category, content)
-        VALUES (?, ?, ?)
+        INSERT INTO memory_entries (user_id, category, content, lane, visibility)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (user_id, category, content)
+        (user_id, category, content, lane, visibility),
     )
 
     conn.commit()
@@ -113,26 +158,52 @@ def add_memory(user_id: str, category: str, content: str) -> Dict:
         "user_id": user_id,
         "category": category,
         "content": content,
+        "lane": lane,
+        "visibility": visibility,
     }
 
 
-def search_memories(user_id: str, query: str, limit: int = 10) -> List[Dict]:
+def search_memories(
+    user_id: str,
+    query: str,
+    lane: Optional[str] = None,
+    limit: int = 10,
+) -> List[Dict]:
     init_db()
     conn = get_connection()
     cur = conn.cursor()
 
     like_query = f"%{query}%"
-    cur.execute(
-        """
-        SELECT id, user_id, category, content, created_at
-        FROM memory_entries
-        WHERE user_id = ?
-          AND LOWER(content) LIKE LOWER(?)
-        ORDER BY created_at DESC, id DESC
-        LIMIT ?
-        """,
-        (user_id, like_query, limit)
-    )
+
+    if lane:
+        cur.execute(
+            """
+            SELECT id, user_id, category, content, lane, visibility, created_at
+            FROM memory_entries
+            WHERE user_id = ?
+              AND LOWER(content) LIKE LOWER(?)
+              AND (
+                    lane = ?
+                    OR visibility = 'shared'
+                    OR visibility = 'global'
+                  )
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, like_query, lane, limit),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, user_id, category, content, lane, visibility, created_at
+            FROM memory_entries
+            WHERE user_id = ?
+              AND LOWER(content) LIKE LOWER(?)
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, like_query, limit),
+        )
 
     rows = cur.fetchall()
     conn.close()
@@ -140,24 +211,46 @@ def search_memories(user_id: str, query: str, limit: int = 10) -> List[Dict]:
     return [dict(row) for row in rows]
 
 
-def delete_memory_by_query(user_id: str, query: str) -> Dict:
+def delete_memory_by_query(
+    user_id: str,
+    query: str,
+    lane: Optional[str] = None,
+) -> Dict:
     init_db()
     conn = get_connection()
     cur = conn.cursor()
 
     like_query = f"%{query}%"
 
-    cur.execute(
-        """
-        SELECT id, content
-        FROM memory_entries
-        WHERE user_id = ?
-          AND LOWER(content) LIKE LOWER(?)
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1
-        """,
-        (user_id, like_query)
-    )
+    if lane:
+        cur.execute(
+            """
+            SELECT id, content, lane, visibility
+            FROM memory_entries
+            WHERE user_id = ?
+              AND LOWER(content) LIKE LOWER(?)
+              AND (
+                    lane = ?
+                    OR visibility = 'shared'
+                    OR visibility = 'global'
+                  )
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (user_id, like_query, lane),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, content, lane, visibility
+            FROM memory_entries
+            WHERE user_id = ?
+              AND LOWER(content) LIKE LOWER(?)
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (user_id, like_query),
+        )
 
     row = cur.fetchone()
 
@@ -167,7 +260,7 @@ def delete_memory_by_query(user_id: str, query: str) -> Dict:
 
     cur.execute(
         "DELETE FROM memory_entries WHERE id = ?",
-        (row["id"],)
+        (row["id"],),
     )
 
     conn.commit()
@@ -176,5 +269,8 @@ def delete_memory_by_query(user_id: str, query: str) -> Dict:
     return {
         "deleted": True,
         "id": row["id"],
-        "content": row["content"]
+        "content": row["content"],
+        "lane": row["lane"],
+        "visibility": row["visibility"],
     }
+

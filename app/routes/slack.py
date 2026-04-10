@@ -1,5 +1,6 @@
 import re
 import time
+from typing import Optional
 
 from fastapi import APIRouter, Request
 from slack_sdk import WebClient
@@ -11,6 +12,7 @@ from app.services.conversation_log_service import (
     get_recent_conversations_for_user,
     log_conversation,
 )
+from app.services.lane_service import get_default_visibility_for_lane, get_lane_from_channel
 from app.services.memory_service import (
     add_memory,
     delete_memory_by_query,
@@ -137,6 +139,22 @@ def post_message(channel: str, text: str):
     except SlackApiError as e:
         print(f"Slack API error: {e.response['error']}")
         return {"ok": False, "error": e.response["error"]}
+
+
+def resolve_slack_channel_name(channel_id: str) -> Optional[str]:
+    if not settings.SLACK_BOT_TOKEN:
+        return None
+
+    try:
+        response = slack_client.conversations_info(channel=channel_id)
+        channel = response.get("channel", {})
+        return channel.get("name")
+    except SlackApiError as e:
+        print(f"Slack channel lookup error: {e.response['error']}")
+        return None
+    except Exception as e:
+        print(f"Slack channel lookup unexpected error: {str(e)}")
+        return None
 
 
 def strip_app_mention(text: str) -> str:
@@ -552,6 +570,9 @@ async def slack_events(request: Request):
     if is_duplicate_recent_message(user_id=user_id, channel_id=channel_id, user_text=user_text):
         return {"ok": True}
 
+    lane = get_lane_from_channel(channel_id, resolver=resolve_slack_channel_name)
+    default_visibility = get_default_visibility_for_lane(lane)
+
     try:
         lowered = user_text.lower().strip()
 
@@ -566,8 +587,14 @@ async def slack_events(request: Request):
             if not memory_text:
                 response_text = "Please tell me what to remember."
             else:
-                add_memory(user_id=user_id, category="note", content=memory_text)
-                response_text = f"Got it. I'll remember: {memory_text}"
+                add_memory(
+                    user_id=user_id,
+                    category="note",
+                    content=memory_text,
+                    lane=lane,
+                    visibility=default_visibility,
+                )
+                response_text = f"Got it. I'll remember this in the {lane} lane: {memory_text}"
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
@@ -578,12 +605,20 @@ async def slack_events(request: Request):
             if not query:
                 response_text = "Please tell me what you want me to recall."
             else:
-                results = search_memories(user_id=user_id, query=query, limit=5)
+                results = search_memories(
+                    user_id=user_id,
+                    query=query,
+                    lane=lane,
+                    limit=5,
+                )
                 if results:
-                    lines = [f"* {item['content']}" for item in results]
+                    lines = [
+                        f"* [{item.get('lane', 'unknown')}/{item.get('visibility', 'unknown')}] {item['content']}"
+                        for item in results
+                    ]
                     response_text = "Here is what I found:\n" + "\n".join(lines)
                 else:
-                    response_text = "I could not find anything matching that."
+                    response_text = f"I could not find anything matching that in the {lane} lane."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
@@ -594,23 +629,31 @@ async def slack_events(request: Request):
             if not query:
                 response_text = "Please tell me what you want me to forget."
             else:
-                deleted = delete_memory_by_query(user_id=user_id, query=query)
+                deleted = delete_memory_by_query(
+                    user_id=user_id,
+                    query=query,
+                    lane=lane,
+                )
                 if deleted.get("deleted"):
-                    response_text = f"Forgot memory matching: {query}"
+                    deleted_lane = deleted.get("lane", lane)
+                    response_text = f"Forgot memory in the {deleted_lane} lane matching: {query}"
                 else:
-                    response_text = f"I could not find anything to forget for: {query}"
+                    response_text = f"I could not find anything to forget for: {query} in the {lane} lane."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
         if lowered == "show memory":
-            memories = get_memories(user_id=user_id, limit=20)
+            memories = get_memories(user_id=user_id, lane=lane, limit=20)
             if memories:
-                lines = [f"* {item['content']}" for item in memories]
-                response_text = "Here is what I remember:\n" + "\n".join(lines)
+                lines = [
+                    f"* [{item.get('lane', 'unknown')}/{item.get('visibility', 'unknown')}] {item['content']}"
+                    for item in memories
+                ]
+                response_text = f"Here is what I remember in the {lane} lane:\n" + "\n".join(lines)
             else:
-                response_text = "I do not have any saved memory yet."
+                response_text = f"I do not have any saved memory yet in the {lane} lane."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
@@ -747,10 +790,7 @@ async def slack_events(request: Request):
                 set_mode(user_id, requested_mode)
                 response_text = f"Mode set to {requested_mode}."
             else:
-                response_text = (
-                    "Unknown mode. Available modes: "
-                    + ", ".join(sorted(VALID_MODES))
-                )
+                response_text = "Unknown mode. Available modes: " + ", ".join(sorted(VALID_MODES))
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
@@ -797,17 +837,11 @@ async def slack_events(request: Request):
                 ok, message = validate_provider_config(requested_provider)
                 if not ok:
                     response_text, active_model = build_provider_summary_text()
-                    response_text = (
-                        f"Cannot switch to {requested_provider}: {message}\n"
-                        + response_text
-                    )
+                    response_text = f"Cannot switch to {requested_provider}: {message}\n" + response_text
                 else:
                     set_provider_override(requested_provider)
                     response_text, active_model = build_provider_summary_text()
-                    response_text = (
-                        f"Provider override set to {requested_provider}.\n"
-                        + response_text
-                    )
+                    response_text = f"Provider override set to {requested_provider}.\n" + response_text
             else:
                 active_model = get_active_model_for_effective_provider()
                 response_text = "Unknown provider. Available options: openai, claude, default."
