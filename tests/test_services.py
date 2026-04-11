@@ -293,3 +293,197 @@ def test_clear_tasks_deletes_only_requested_status():
 
     done_tasks = task_service.get_tasks(user_id="U123", status="done")
     assert len(done_tasks) == 1
+    assert done_tasks[0]["task_text"] == "send the invoice"
+
+
+def test_add_task_same_text_can_exist_in_multiple_lanes():
+    first = task_service.add_task(
+        user_id="U123",
+        lane="work",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    second = task_service.add_task(
+        user_id="U123",
+        lane="dj",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    assert first["created"] is True
+    assert second["created"] is True
+    assert first["deduped"] is False
+    assert second["deduped"] is False
+
+    work_tasks = task_service.get_tasks(user_id="U123", lane="work", status="pending")
+    dj_tasks = task_service.get_tasks(user_id="U123", lane="dj", status="pending")
+
+    assert len(work_tasks) == 1
+    assert len(dj_tasks) == 1
+    assert work_tasks[0]["task_text"] == "review the deck"
+    assert dj_tasks[0]["task_text"] == "review the deck"
+
+
+def test_add_task_dedupes_only_within_same_lane():
+    first = task_service.add_task(
+        user_id="U123",
+        lane="work",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    second = task_service.add_task(
+        user_id="U123",
+        lane="work",
+        source_message="add task Review the deck!!!",
+        task_text="Review the deck!!!",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    third = task_service.add_task(
+        user_id="U123",
+        lane="dj",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    assert first["created"] is True
+    assert second["created"] is False
+    assert second["deduped"] is True
+    assert third["created"] is True
+    assert third["deduped"] is False
+
+    work_tasks = task_service.get_tasks(user_id="U123", lane="work", status="pending")
+    dj_tasks = task_service.get_tasks(user_id="U123", lane="dj", status="pending")
+
+    assert len(work_tasks) == 1
+    assert len(dj_tasks) == 1
+
+
+def test_mark_task_done_only_updates_matching_lane():
+    task_service.add_task(
+        user_id="U123",
+        lane="work",
+        source_message="add task send the invoice",
+        task_text="send the invoice",
+        assistant_commitment="Saved as a pending task.",
+    )
+    task_service.add_task(
+        user_id="U123",
+        lane="dj",
+        source_message="add task send the invoice",
+        task_text="send the invoice",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    result = task_service.mark_task_done(
+        user_id="U123",
+        lane="work",
+        task_text="Send the invoice!!!",
+    )
+
+    assert result["updated"] is True
+    assert result["task"]["task_text"] == "send the invoice"
+    assert result["task"]["status"] == "done"
+
+    work_pending = task_service.get_tasks(user_id="U123", lane="work", status="pending")
+    work_done = task_service.get_tasks(user_id="U123", lane="work", status="done")
+    dj_pending = task_service.get_tasks(user_id="U123", lane="dj", status="pending")
+    dj_done = task_service.get_tasks(user_id="U123", lane="dj", status="done")
+
+    assert work_pending == []
+    assert len(work_done) == 1
+    assert len(dj_pending) == 1
+    assert dj_done == []
+
+
+def test_remove_task_only_deletes_matching_lane():
+    task_service.add_task(
+        user_id="U123",
+        lane="work",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+    task_service.add_task(
+        user_id="U123",
+        lane="dj",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    result = task_service.remove_task(
+        user_id="U123",
+        lane="work",
+        task_text="Review the deck!!!",
+        status="pending",
+    )
+
+    assert result["deleted"] is True
+    assert result["task"]["task_text"] == "review the deck"
+
+    work_pending = task_service.get_tasks(user_id="U123", lane="work", status="pending")
+    dj_pending = task_service.get_tasks(user_id="U123", lane="dj", status="pending")
+
+    assert work_pending == []
+    assert len(dj_pending) == 1
+    assert dj_pending[0]["task_text"] == "review the deck"
+
+
+def test_clear_tasks_only_clears_requested_lane():
+    task_service.add_task(
+        user_id="U123",
+        lane="work",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+    task_service.add_task(
+        user_id="U123",
+        lane="dj",
+        source_message="add task send the invoice",
+        task_text="send the invoice",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    result = task_service.clear_tasks(user_id="U123", lane="work", status="pending")
+
+    assert result["deleted"] == 1
+
+    work_pending = task_service.get_tasks(user_id="U123", lane="work", status="pending")
+    dj_pending = task_service.get_tasks(user_id="U123", lane="dj", status="pending")
+
+    assert work_pending == []
+    assert len(dj_pending) == 1
+    assert dj_pending[0]["task_text"] == "send the invoice"
+
+
+def test_get_tasks_returns_only_requested_lane():
+    task_service.add_task(
+        user_id="U123",
+        lane="work",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="Saved as a pending task.",
+    )
+    task_service.add_task(
+        user_id="U123",
+        lane="dj",
+        source_message="add task send the invoice",
+        task_text="send the invoice",
+        assistant_commitment="Saved as a pending task.",
+    )
+
+    work_tasks = task_service.get_tasks(user_id="U123", lane="work", status="pending")
+    dj_tasks = task_service.get_tasks(user_id="U123", lane="dj", status="pending")
+
+    assert len(work_tasks) == 1
+    assert len(dj_tasks) == 1
+    assert work_tasks[0]["task_text"] == "review the deck"
+    assert dj_tasks[0]["task_text"] == "send the invoice"
