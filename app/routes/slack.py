@@ -125,6 +125,8 @@ COMPLETE_TASK_PATTERNS = [
     r"^\s*i did\s+",
     r"^\s*wrapped\s+",
     r"^\s*wrapped up\s+",
+    r"^\s*that's done\s+",
+    r"^\s*thats done\s+",
 ]
 
 REMOVE_DONE_TASK_PATTERNS = [
@@ -147,6 +149,9 @@ REMOVE_TASK_PATTERNS = [
 ]
 
 REMEMBER_PATTERNS = [
+    r"^\s*can you remember this\s+",
+    r"^\s*please remember this\s+",
+    r"^\s*remember this\s+",
     r"^\s*remember that\s+",
     r"^\s*remember\s+",
 ]
@@ -159,6 +164,8 @@ RECALL_PATTERNS = [
 ]
 
 FORGET_MEMORY_PATTERNS = [
+    r"^\s*please forget this\s+",
+    r"^\s*forget this\s+",
     r"^\s*forget that\s+",
     r"^\s*forget\s+",
     r"^\s*stop remembering\s+",
@@ -247,10 +254,14 @@ def help_text() -> str:
         "Here are the commands I understand:\n"
         "* remember ...\n"
         "* remember that ...\n"
+        "* remember this ...\n"
+        "* can you remember this ...\n"
         "* recall ...\n"
         "* what do you remember about ...\n"
         "* forget ...\n"
         "* forget that ...\n"
+        "* forget this ...\n"
+        "* please forget this ...\n"
         "* stop remembering ...\n"
         "* show memory\n"
         "* show recent conversations\n"
@@ -273,6 +284,8 @@ def help_text() -> str:
         "* complete task ...\n"
         "* finished ...\n"
         "* i finished ...\n"
+        "* that's done ...\n"
+        "* delete ...\n"
         "* remove task ...\n"
         "* delete task ...\n"
         "* drop task ...\n"
@@ -1122,3 +1135,4 @@ async def slack_events(request: Request):
         response_text = "Sorry, something went wrong while handling that Slack message."
         post_message(channel_id, response_text)
         return {"ok": True}
+

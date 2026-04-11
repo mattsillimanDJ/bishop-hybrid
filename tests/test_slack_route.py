@@ -866,6 +866,70 @@ def test_i_finished_phrase_marks_pending_task_done(monkeypatch):
     assert captured["text"] == "Marked done: send the invoice"
 
 
+def test_thats_done_phrase_marks_pending_task_done(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_mark_task_done(user_id, task_text, lane=None):
+        assert user_id == "U123"
+        assert task_text == "send the invoice"
+        return {
+            "updated": True,
+            "task": {
+                "task_text": "send the invoice",
+            },
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "mark_task_done", fake_mark_task_done)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("that's done send the invoice", event_id="evt-thats-done-task"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Marked done: send the invoice"
+
+
+def test_thats_without_apostrophe_phrase_marks_pending_task_done(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_mark_task_done(user_id, task_text, lane=None):
+        assert user_id == "U123"
+        assert task_text == "send the invoice"
+        return {
+            "updated": True,
+            "task": {
+                "task_text": "send the invoice",
+            },
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "mark_task_done", fake_mark_task_done)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("thats done send the invoice", event_id="evt-thats-no-apostrophe-task"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Marked done: send the invoice"
+
+
 def test_remove_done_task_command_removes_completed_task(monkeypatch):
     reset_route_state()
     captured = {}
@@ -1199,6 +1263,37 @@ def test_remember_that_phrase_saves_memory(monkeypatch):
     assert calls[0]["content"] == "apples are in the kitchen"
 
 
+def test_can_you_remember_this_phrase_saves_memory(monkeypatch):
+    reset_route_state()
+    captured = {}
+    calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        calls.append(kwargs)
+        return {"id": 1}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_default_visibility_for_lane", lambda lane: "private")
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("can you remember this apples are in the kitchen", event_id="evt-remember-this"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Got it. I'll remember this in the work lane: apples are in the kitchen"
+    assert len(calls) == 1
+    assert calls[0]["content"] == "apples are in the kitchen"
+
+
 def test_what_do_you_remember_about_phrase_recalls_memory(monkeypatch):
     reset_route_state()
     captured = {}
@@ -1300,6 +1395,35 @@ def test_forget_that_phrase_deletes_memory(monkeypatch):
     response = client.post(
         "/slack/events",
         json=make_event("forget that apples are in the kitchen", event_id="evt-forget-that"),
+    )
+
+    assert response.status_code == 200
+    assert calls == [("U123", "apples are in the kitchen", "work")]
+    assert captured["text"] == "Forgot memory in the work lane matching: apples are in the kitchen"
+
+
+def test_please_forget_this_phrase_deletes_memory(monkeypatch):
+    reset_route_state()
+    captured = {}
+    calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_delete_memory_by_query(user_id, query, lane):
+        calls.append((user_id, query, lane))
+        return {"deleted": True, "lane": lane}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "delete_memory_by_query", fake_delete_memory_by_query)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("please forget this apples are in the kitchen", event_id="evt-please-forget-this"),
     )
 
     assert response.status_code == 200
