@@ -1003,3 +1003,215 @@ def test_show_pending_is_lane_aware(monkeypatch):
     lanes = [call[2] for call in captured["calls"]]
     assert "C123" in lanes
     assert "C999" in lanes
+
+
+def test_done_command_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_mark_task_done(user_id, task_text, lane=None):
+        captured["calls"].append((user_id, task_text, lane))
+        if lane == "C123":
+            return {"updated": True, "task": {"task_text": task_text}}
+        return {"updated": False}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "mark_task_done", fake_mark_task_done)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("done send the invoice", event_id="evt-done-a", channel_id="C123"),
+    )
+    assert captured["text"] == "Marked done: send the invoice"
+
+    client.post(
+        "/slack/events",
+        json=make_event("done send the invoice", event_id="evt-done-b", channel_id="C999"),
+    )
+    assert captured["text"] == "I could not find a pending task matching: send the invoice"
+
+    lanes = [call[2] for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
+
+
+def test_remove_task_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_remove_task(user_id, task_text, status="pending", lane=None):
+        captured["calls"].append((user_id, task_text, status, lane))
+        if lane == "C123":
+            return {"deleted": True, "task": {"task_text": task_text}}
+        return {"deleted": False}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "remove_task", fake_remove_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("remove task review the deck", event_id="evt-remove-a", channel_id="C123"),
+    )
+    assert captured["text"] == "Removed pending task: review the deck"
+
+    client.post(
+        "/slack/events",
+        json=make_event("remove task review the deck", event_id="evt-remove-b", channel_id="C999"),
+    )
+    assert captured["text"] == "I could not find a pending task matching: review the deck"
+
+    lanes = [call[3] for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
+
+
+def test_clear_tasks_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_clear_tasks(user_id, status="pending", lane=None):
+        captured["calls"].append((user_id, status, lane))
+        if lane == "C123":
+            return {"deleted": 2}
+        if lane == "C999":
+            return {"deleted": 1}
+        return {"deleted": 0}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "clear_tasks", fake_clear_tasks)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("clear tasks", event_id="evt-clear-a", channel_id="C123"),
+    )
+    assert captured["text"] == "Cleared 2 pending task(s)."
+
+    client.post(
+        "/slack/events",
+        json=make_event("clear tasks", event_id="evt-clear-b", channel_id="C999"),
+    )
+    assert captured["text"] == "Cleared 1 pending task(s)."
+
+    lanes = [call[2] for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
+
+
+def test_show_all_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_tasks(user_id, status="pending", limit=10, lane=None):
+        captured["calls"].append((user_id, status, lane))
+        if lane == "C123" and status == "pending":
+            return [{"task_text": "pending lane A"}]
+        if lane == "C123" and status == "done":
+            return [{"task_text": "done lane A"}]
+        if lane == "C999" and status == "pending":
+            return [{"task_text": "pending lane B"}]
+        if lane == "C999" and status == "done":
+            return [{"task_text": "done lane B"}]
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_tasks", fake_get_tasks)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("show all", event_id="evt-show-all-a", channel_id="C123"),
+    )
+    assert "pending lane A" in captured["text"]
+    assert "done lane A" in captured["text"]
+
+    client.post(
+        "/slack/events",
+        json=make_event("show all", event_id="evt-show-all-b", channel_id="C999"),
+    )
+    assert "pending lane B" in captured["text"]
+    assert "done lane B" in captured["text"]
+
+    lanes = [call[2] for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
+
+
+def test_same_task_text_can_exist_in_two_lanes(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_task(**kwargs):
+        captured["calls"].append(kwargs)
+        return {"id": len(captured["calls"])}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_task", fake_add_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("add task review the deck", event_id="evt-same-task-a", channel_id="C123"),
+    )
+    client.post(
+        "/slack/events",
+        json=make_event("add task review the deck", event_id="evt-same-task-b", channel_id="C999"),
+    )
+
+    assert len(captured["calls"]) == 2
+    assert captured["calls"][0]["task_text"] == "review the deck"
+    assert captured["calls"][1]["task_text"] == "review the deck"
+    assert captured["calls"][0]["lane"] == "C123"
+    assert captured["calls"][1]["lane"] == "C999"
+
