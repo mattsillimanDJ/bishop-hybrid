@@ -1,9 +1,18 @@
+import pytest
+
+from app.services import memory_service
 from app.services.memory_service import (
     add_memory,
     get_memories,
     search_memories,
     delete_memory_by_query,
 )
+
+
+@pytest.fixture(autouse=True)
+def use_temp_memory_db(tmp_path, monkeypatch):
+    test_db_path = tmp_path / "bishop_memory_test.db"
+    monkeypatch.setattr(memory_service, "DB_PATH", test_db_path)
 
 
 def test_private_memory_is_isolated():
@@ -60,10 +69,6 @@ def test_delete_respects_lane():
     remaining = get_memories(user_id=user_id, lane="carmen")
     assert any("delete me carmen" in m["content"] for m in remaining)
 
-
-# -----------------------------
-# NEW EDGE CASE TESTS
-# -----------------------------
 
 def test_same_memory_text_can_exist_in_multiple_lanes():
     user_id = "test_user_multi"

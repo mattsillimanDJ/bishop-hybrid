@@ -73,6 +73,13 @@ MODE_QUERY_MESSAGES = {
     "current mode",
 }
 
+LANE_QUERY_MESSAGES = {
+    "show lane",
+    "what lane am i in",
+    "what lane are we in",
+    "current lane",
+}
+
 TASK_QUERY_MESSAGES = {
     "show tasks",
     "show pending",
@@ -214,6 +221,8 @@ def help_text() -> str:
         "* show memory\n"
         "* show recent conversations\n"
         "* show last 5 conversations\n"
+        "* show lane\n"
+        "* what lane am i in\n"
         "* show tasks\n"
         "* show pending\n"
         "* show done\n"
@@ -450,6 +459,14 @@ def build_provider_summary_text() -> tuple[str, str]:
     return "\n".join(lines), active_model
 
 
+def build_lane_text(channel_id: str, lane: str, default_visibility: str) -> str:
+    return (
+        f"Current lane: {lane}\n"
+        f"Channel ID: {channel_id}\n"
+        f"Default visibility: {default_visibility}"
+    )
+
+
 def get_tasks_for_lane(user_id: str, lane: str, status: str, limit: int = 10):
     try:
         return get_tasks(user_id=user_id, lane=lane, status=status, limit=limit)
@@ -525,6 +542,7 @@ def build_status_text(user_id: str, lane: str) -> tuple[str, str]:
     response_text = (
         "*Bishop Status*\n\n"
         f"*Mode:* {current_mode}\n"
+        f"*Lane:* {lane}\n"
         f"*Effective provider:* {effective_provider}\n"
         f"*Active model:* {active_model}\n"
         f"*Provider override:* {resolution['override'] or 'none'}\n"
@@ -640,6 +658,16 @@ async def slack_events(request: Request):
 
         if lowered == "help":
             response_text = help_text()
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in LANE_QUERY_MESSAGES:
+            response_text = build_lane_text(
+                channel_id=channel_id,
+                lane=lane,
+                default_visibility=default_visibility,
+            )
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
