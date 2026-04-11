@@ -185,6 +185,8 @@ def test_help_command(monkeypatch):
     response = client.post("/slack/events", json=make_event("help", event_id="evt-help"))
 
     assert response.status_code == 200
+    assert "show lane" in captured["text"]
+    assert "what lane am i in" in captured["text"]
     assert "show tasks" in captured["text"]
     assert "show done" in captured["text"]
     assert "show completed" in captured["text"]
@@ -196,6 +198,69 @@ def test_help_command(monkeypatch):
     assert "remove completed task" in captured["text"]
     assert "add task" in captured["text"]
     assert "remind me" in captured["text"]
+
+
+def test_show_lane_command(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: "dj",
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_default_visibility_for_lane",
+        lambda lane: "private",
+    )
+
+    response = client.post("/slack/events", json=make_event("show lane", event_id="evt-show-lane"))
+
+    assert response.status_code == 200
+    assert "Current lane: dj" in captured["text"]
+    assert "Channel ID: C123" in captured["text"]
+    assert "Default visibility: private" in captured["text"]
+
+
+def test_what_lane_am_i_in_command(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: "work",
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_default_visibility_for_lane",
+        lambda lane: "shared",
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what lane am i in", event_id="evt-what-lane"),
+    )
+
+    assert response.status_code == 200
+    assert "Current lane: work" in captured["text"]
+    assert "Channel ID: C123" in captured["text"]
+    assert "Default visibility: shared" in captured["text"]
 
 
 def test_provider_command(monkeypatch):
@@ -268,10 +333,16 @@ def test_status_command_includes_pending_tasks(monkeypatch):
         lambda user_id, status="pending", limit=10: [{"task_text": "Do the thing"}],
     )
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: "work",
+    )
 
     response = client.post("/slack/events", json=make_event("status", event_id="evt-status"))
 
     assert response.status_code == 200
+    assert "*Lane:* work" in captured["text"]
     assert "*Pending tasks:* 1" in captured["text"]
 
 
