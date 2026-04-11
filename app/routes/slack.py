@@ -607,6 +607,41 @@ def extract_task_text_for_removal(message: str) -> str | None:
     return None
 
 
+def get_result_flag(result: object, flag_name: str) -> bool:
+    if not isinstance(result, dict):
+        return False
+    return bool(result.get(flag_name))
+
+
+def get_result_task_text(result: object, fallback_text: str) -> str:
+    if isinstance(result, dict):
+        nested_task = result.get("task")
+        if isinstance(nested_task, dict):
+            nested_text = (nested_task.get("task_text") or "").strip()
+            if nested_text:
+                return nested_text
+
+        top_level_text = (result.get("task_text") or "").strip()
+        if top_level_text:
+            return top_level_text
+
+    return fallback_text
+
+
+def get_deleted_count(result: object) -> int:
+    if not isinstance(result, dict):
+        return 0
+
+    deleted_value = result.get("deleted", 0)
+    if isinstance(deleted_value, bool):
+        return int(deleted_value)
+
+    try:
+        return int(deleted_value)
+    except (TypeError, ValueError):
+        return 0
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request):
     body = await request.json()
@@ -799,7 +834,8 @@ async def slack_events(request: Request):
 
         if lowered in CLEAR_TASK_MESSAGES:
             result = clear_tasks_for_lane(user_id=user_id, lane=lane, status="pending")
-            response_text = f"Cleared {result['deleted']} pending task(s)."
+            deleted_count = get_deleted_count(result)
+            response_text = f"Cleared {deleted_count} pending task(s)."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
@@ -807,7 +843,8 @@ async def slack_events(request: Request):
 
         if lowered in CLEAR_DONE_TASK_MESSAGES:
             result = clear_tasks_for_lane(user_id=user_id, lane=lane, status="done")
-            response_text = f"Cleared {result['deleted']} completed task(s)."
+            deleted_count = get_deleted_count(result)
+            response_text = f"Cleared {deleted_count} completed task(s)."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
@@ -816,8 +853,9 @@ async def slack_events(request: Request):
         completed_task_text = extract_task_text_for_completion(user_text)
         if completed_task_text:
             result = mark_task_done_for_lane(user_id=user_id, lane=lane, task_text=completed_task_text)
-            if result["updated"]:
-                response_text = f"Marked done: {result['task']['task_text']}"
+            if get_result_flag(result, "updated"):
+                result_task_text = get_result_task_text(result, completed_task_text)
+                response_text = f"Marked done: {result_task_text}"
             else:
                 response_text = f"I could not find a pending task matching: {completed_task_text}"
 
@@ -833,8 +871,9 @@ async def slack_events(request: Request):
                 task_text=removed_done_task_text,
                 status="done",
             )
-            if result["deleted"]:
-                response_text = f"Removed completed task: {result['task']['task_text']}"
+            if get_result_flag(result, "deleted"):
+                result_task_text = get_result_task_text(result, removed_done_task_text)
+                response_text = f"Removed completed task: {result_task_text}"
             else:
                 response_text = f"I could not find a completed task matching: {removed_done_task_text}"
 
@@ -850,8 +889,9 @@ async def slack_events(request: Request):
                 task_text=removed_task_text,
                 status="pending",
             )
-            if result["deleted"]:
-                response_text = f"Removed pending task: {result['task']['task_text']}"
+            if get_result_flag(result, "deleted"):
+                result_task_text = get_result_task_text(result, removed_task_text)
+                response_text = f"Removed pending task: {result_task_text}"
             else:
                 response_text = f"I could not find a pending task matching: {removed_task_text}"
 
@@ -872,11 +912,14 @@ async def slack_events(request: Request):
                     assistant_commitment="Saved as a pending task.",
                     status="pending",
                 )
-                result_task_text = task_result.get("task_text", task_text)
-                if task_result.get("deduped"):
-                    response_text = f"Already in pending tasks: {result_task_text}"
+                if isinstance(task_result, dict):
+                    result_task_text = task_result.get("task_text", task_text)
+                    if task_result.get("deduped"):
+                        response_text = f"Already in pending tasks: {result_task_text}"
+                    else:
+                        response_text = f"Saved to pending tasks: {result_task_text}"
                 else:
-                    response_text = f"Saved to pending tasks: {result_task_text}"
+                    response_text = f"Saved to pending tasks: {task_text}"
             else:
                 response_text = "I could not figure out the task text. Please try again."
 
@@ -977,7 +1020,7 @@ async def slack_events(request: Request):
                 assistant_commitment=response_text,
                 status="pending",
             )
-            if task_result.get("deduped"):
+            if isinstance(task_result, dict) and task_result.get("deduped"):
                 result_task_text = task_result.get("task_text", user_text)
                 print(f"Skipped duplicate commitment task for user {user_id} in {lane}: {result_task_text}")
 
@@ -998,6 +1041,7 @@ async def slack_events(request: Request):
         return {"ok": True}
 
     except Exception as e:
-        response_text = f"Something went wrong: {str(e)}"
+        print(f"Slack route unexpected error for user {user_id} in channel {channel_id}: {str(e)}")
+        response_text = "Sorry, something went wrong while handling that Slack message."
         post_message(channel_id, response_text)
         return {"ok": True}
