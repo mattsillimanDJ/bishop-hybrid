@@ -1215,3 +1215,179 @@ def test_same_task_text_can_exist_in_two_lanes(monkeypatch):
     assert captured["calls"][0]["lane"] == "C123"
     assert captured["calls"][1]["lane"] == "C999"
 
+
+def test_remember_command_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["calls"].append(kwargs)
+        return {"id": len(captured["calls"])}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_default_visibility_for_lane",
+        lambda lane: "private",
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("remember apples", event_id="evt-remember-a", channel_id="C123"),
+    )
+    assert captured["text"] == "Got it. I'll remember this in the C123 lane: apples"
+
+    client.post(
+        "/slack/events",
+        json=make_event("remember oranges", event_id="evt-remember-b", channel_id="C999"),
+    )
+    assert captured["text"] == "Got it. I'll remember this in the C999 lane: oranges"
+
+    assert len(captured["calls"]) == 2
+    assert captured["calls"][0]["lane"] == "C123"
+    assert captured["calls"][0]["content"] == "apples"
+    assert captured["calls"][1]["lane"] == "C999"
+    assert captured["calls"][1]["content"] == "oranges"
+
+
+def test_show_memory_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_memories(user_id, lane, limit=20):
+        captured["calls"].append((user_id, lane, limit))
+        if lane == "C123":
+            return [{"lane": "C123", "visibility": "private", "content": "apples"}]
+        if lane == "C999":
+            return [{"lane": "C999", "visibility": "private", "content": "oranges"}]
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_memories", fake_get_memories)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("show memory", event_id="evt-show-memory-a", channel_id="C123"),
+    )
+    assert "Here is what I remember in the C123 lane:" in captured["text"]
+    assert "apples" in captured["text"]
+
+    client.post(
+        "/slack/events",
+        json=make_event("show memory", event_id="evt-show-memory-b", channel_id="C999"),
+    )
+    assert "Here is what I remember in the C999 lane:" in captured["text"]
+    assert "oranges" in captured["text"]
+
+    lanes = [call[1] for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
+
+
+def test_recall_command_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_search_memories(user_id, query, lane, limit=5):
+        captured["calls"].append((user_id, query, lane, limit))
+        if lane == "C123":
+            return [{"lane": "C123", "visibility": "private", "content": "apples are in kitchen"}]
+        if lane == "C999":
+            return [{"lane": "C999", "visibility": "private", "content": "oranges are in studio"}]
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "search_memories", fake_search_memories)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("recall fruit", event_id="evt-recall-a", channel_id="C123"),
+    )
+    assert "Here is what I found:" in captured["text"]
+    assert "apples are in kitchen" in captured["text"]
+
+    client.post(
+        "/slack/events",
+        json=make_event("recall fruit", event_id="evt-recall-b", channel_id="C999"),
+    )
+    assert "Here is what I found:" in captured["text"]
+    assert "oranges are in studio" in captured["text"]
+
+    lanes = [call[2] for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
+
+
+def test_forget_command_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_delete_memory_by_query(user_id, query, lane):
+        captured["calls"].append((user_id, query, lane))
+        if lane == "C123":
+            return {"deleted": True, "lane": "C123"}
+        return {"deleted": False}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "delete_memory_by_query", fake_delete_memory_by_query)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("forget apples", event_id="evt-forget-a", channel_id="C123"),
+    )
+    assert captured["text"] == "Forgot memory in the C123 lane matching: apples"
+
+    client.post(
+        "/slack/events",
+        json=make_event("forget apples", event_id="evt-forget-b", channel_id="C999"),
+    )
+    assert captured["text"] == "I could not find anything to forget for: apples in the C999 lane."
+
+    lanes = [call[2] for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
