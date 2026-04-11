@@ -262,7 +262,11 @@ def test_status_command_includes_pending_tasks(monkeypatch):
     monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
     monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
     monkeypatch.setattr(slack_route, "validate_provider_config", lambda provider: (True, "ok"))
-    monkeypatch.setattr(slack_route, "get_tasks", lambda user_id, status="pending", limit=10: [{"task_text": "Do the thing"}])
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, status="pending", limit=10: [{"task_text": "Do the thing"}],
+    )
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
 
     response = client.post("/slack/events", json=make_event("status", event_id="evt-status"))
@@ -918,3 +922,84 @@ def test_normal_chat_message_does_not_create_task_without_commitment(monkeypatch
     assert response.status_code == 200
     assert captured["text"] == "Here is the completed answer."
     assert created_tasks == []
+
+
+def test_add_task_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_task(**kwargs):
+        captured["calls"].append(kwargs)
+        return {"id": 1}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_task", fake_add_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("add task review lane A", event_id="evt-lane-a", channel_id="C123"),
+    )
+    client.post(
+        "/slack/events",
+        json=make_event("add task review lane B", event_id="evt-lane-b", channel_id="C999"),
+    )
+
+    assert len(captured["calls"]) == 2
+
+    lanes = [call.get("lane") for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
+
+
+def test_show_pending_is_lane_aware(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_tasks(user_id, status="pending", limit=10, lane=None):
+        captured["calls"].append((user_id, status, lane))
+
+        if lane == "C123":
+            return [{"task_text": "Task in lane A"}]
+        if lane == "C999":
+            return [{"task_text": "Task in lane B"}]
+        return []
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_tasks", fake_get_tasks)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: channel_id,
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("show pending", event_id="evt-show-a", channel_id="C123"),
+    )
+    assert "Task in lane A" in captured["text"]
+
+    client.post(
+        "/slack/events",
+        json=make_event("show pending", event_id="evt-show-b", channel_id="C999"),
+    )
+    assert "Task in lane B" in captured["text"]
+
+    lanes = [call[2] for call in captured["calls"]]
+    assert "C123" in lanes
+    assert "C999" in lanes
