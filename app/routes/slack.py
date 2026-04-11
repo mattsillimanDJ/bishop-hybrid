@@ -642,6 +642,60 @@ def get_deleted_count(result: object) -> int:
         return 0
 
 
+def normalize_memory_item(item: object, fallback_lane: str) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+
+    content = item.get("content")
+    if not isinstance(content, str):
+        return None
+
+    content = content.strip()
+    if not content:
+        return None
+
+    lane = item.get("lane")
+    if not isinstance(lane, str) or not lane.strip():
+        lane = fallback_lane
+
+    visibility = item.get("visibility")
+    if not isinstance(visibility, str) or not visibility.strip():
+        visibility = "unknown"
+
+    return {
+        "lane": lane,
+        "visibility": visibility,
+        "content": content,
+    }
+
+
+def get_safe_memory_items(result: object, fallback_lane: str) -> list[dict]:
+    if not isinstance(result, (list, tuple)):
+        return []
+
+    normalized_items = []
+    for item in result:
+        normalized_item = normalize_memory_item(item, fallback_lane)
+        if normalized_item:
+            normalized_items.append(normalized_item)
+
+    return normalized_items
+
+
+def was_memory_deleted(result: object) -> bool:
+    if not isinstance(result, dict):
+        return False
+    return bool(result.get("deleted"))
+
+
+def get_deleted_memory_lane(result: object, fallback_lane: str) -> str:
+    if isinstance(result, dict):
+        lane = result.get("lane")
+        if isinstance(lane, str) and lane.strip():
+            return lane.strip()
+    return fallback_lane
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request):
     body = await request.json()
@@ -730,15 +784,16 @@ async def slack_events(request: Request):
             if not query:
                 response_text = "Please tell me what you want me to recall."
             else:
-                results = search_memories(
+                raw_results = search_memories(
                     user_id=user_id,
                     query=query,
                     lane=lane,
                     limit=5,
                 )
+                results = get_safe_memory_items(raw_results, lane)
                 if results:
                     lines = [
-                        f"* [{item.get('lane', 'unknown')}/{item.get('visibility', 'unknown')}] {item['content']}"
+                        f"* [{item['lane']}/{item['visibility']}] {item['content']}"
                         for item in results
                     ]
                     response_text = "Here is what I found:\n" + "\n".join(lines)
@@ -759,8 +814,8 @@ async def slack_events(request: Request):
                     query=query,
                     lane=lane,
                 )
-                if deleted.get("deleted"):
-                    deleted_lane = deleted.get("lane", lane)
+                if was_memory_deleted(deleted):
+                    deleted_lane = get_deleted_memory_lane(deleted, lane)
                     response_text = f"Forgot memory in the {deleted_lane} lane matching: {query}"
                 else:
                     response_text = f"I could not find anything to forget for: {query} in the {lane} lane."
@@ -770,10 +825,11 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered == "show memory":
-            memories = get_memories(user_id=user_id, lane=lane, limit=20)
+            raw_memories = get_memories(user_id=user_id, lane=lane, limit=20)
+            memories = get_safe_memory_items(raw_memories, lane)
             if memories:
                 lines = [
-                    f"* [{item.get('lane', 'unknown')}/{item.get('visibility', 'unknown')}] {item['content']}"
+                    f"* [{item['lane']}/{item['visibility']}] {item['content']}"
                     for item in memories
                 ]
                 response_text = f"Here is what I remember in the {lane} lane:\n" + "\n".join(lines)

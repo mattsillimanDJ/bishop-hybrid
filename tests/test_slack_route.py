@@ -1054,6 +1054,146 @@ def test_clear_completed_command_handles_non_dict_result(monkeypatch):
     assert "Something went wrong" not in captured["text"]
 
 
+def test_show_memory_handles_non_list_result(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_memories", lambda user_id, lane, limit=20: {"content": "bad"})
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post("/slack/events", json=make_event("show memory", event_id="evt-show-memory-nonlist"))
+
+    assert response.status_code == 200
+    assert captured["text"] == "I do not have any saved memory yet in the work lane."
+    assert "Something went wrong" not in captured["text"]
+
+
+def test_show_memory_handles_malformed_items(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    malformed_items = [
+        {"content": ""},
+        {"visibility": "private"},
+        "bad-item",
+        {"content": "  "},
+    ]
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_memories", lambda user_id, lane, limit=20: malformed_items)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post("/slack/events", json=make_event("show memory", event_id="evt-show-memory-malformed"))
+
+    assert response.status_code == 200
+    assert captured["text"] == "I do not have any saved memory yet in the work lane."
+    assert "Something went wrong" not in captured["text"]
+
+
+def test_recall_handles_non_list_result(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "search_memories", lambda user_id, query, lane, limit=5: None)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post("/slack/events", json=make_event("recall fruit", event_id="evt-recall-nonlist"))
+
+    assert response.status_code == 200
+    assert captured["text"] == "I could not find anything matching that in the work lane."
+    assert "Something went wrong" not in captured["text"]
+
+
+def test_recall_handles_malformed_items(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    malformed_items = [
+        {"content": ""},
+        {"lane": "work"},
+        123,
+        {"content": "   "},
+    ]
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "search_memories", lambda user_id, query, lane, limit=5: malformed_items)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post("/slack/events", json=make_event("recall fruit", event_id="evt-recall-malformed"))
+
+    assert response.status_code == 200
+    assert captured["text"] == "I could not find anything matching that in the work lane."
+    assert "Something went wrong" not in captured["text"]
+
+
+def test_forget_handles_non_dict_result(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "delete_memory_by_query", lambda user_id, query, lane: ["bad"])
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post("/slack/events", json=make_event("forget apples", event_id="evt-forget-nondict"))
+
+    assert response.status_code == 200
+    assert captured["text"] == "I could not find anything to forget for: apples in the work lane."
+    assert "Something went wrong" not in captured["text"]
+
+
+def test_forget_handles_malformed_dict_result(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "delete_memory_by_query", lambda user_id, query, lane: {"lane": "work"})
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post("/slack/events", json=make_event("forget apples", event_id="evt-forget-malformed"))
+
+    assert response.status_code == 200
+    assert captured["text"] == "I could not find anything to forget for: apples in the work lane."
+    assert "Something went wrong" not in captured["text"]
+
+
 def test_normal_chat_message_creates_task_on_commitment(monkeypatch):
     reset_route_state()
     captured = {}
