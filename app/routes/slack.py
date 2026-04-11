@@ -115,8 +115,16 @@ COMPLETE_TASK_PATTERNS = [
     r"^\s*done\s+",
     r"^\s*complete task\s+",
     r"^\s*complete\s+",
+    r"^\s*completed\s+",
     r"^\s*mark done\s+",
     r"^\s*mark task done\s+",
+    r"^\s*finished\s+",
+    r"^\s*finish\s+",
+    r"^\s*i finished\s+",
+    r"^\s*i completed\s+",
+    r"^\s*i did\s+",
+    r"^\s*wrapped\s+",
+    r"^\s*wrapped up\s+",
 ]
 
 REMOVE_DONE_TASK_PATTERNS = [
@@ -132,6 +140,28 @@ REMOVE_TASK_PATTERNS = [
     r"^\s*remove task\s+",
     r"^\s*delete task\s+",
     r"^\s*drop task\s+",
+    r"^\s*forget task\s+",
+    r"^\s*remove\s+",
+    r"^\s*delete\s+",
+    r"^\s*drop\s+",
+]
+
+REMEMBER_PATTERNS = [
+    r"^\s*remember that\s+",
+    r"^\s*remember\s+",
+]
+
+RECALL_PATTERNS = [
+    r"^\s*recall\s+",
+    r"^\s*what do you remember about\s+",
+    r"^\s*what do you remember of\s+",
+    r"^\s*what do you know about\s+",
+]
+
+FORGET_MEMORY_PATTERNS = [
+    r"^\s*forget that\s+",
+    r"^\s*forget\s+",
+    r"^\s*stop remembering\s+",
 ]
 
 
@@ -216,8 +246,12 @@ def help_text() -> str:
     return (
         "Here are the commands I understand:\n"
         "* remember ...\n"
+        "* remember that ...\n"
         "* recall ...\n"
+        "* what do you remember about ...\n"
         "* forget ...\n"
+        "* forget that ...\n"
+        "* stop remembering ...\n"
         "* show memory\n"
         "* show recent conversations\n"
         "* show last 5 conversations\n"
@@ -237,7 +271,11 @@ def help_text() -> str:
         "* remind me ...\n"
         "* done ...\n"
         "* complete task ...\n"
+        "* finished ...\n"
+        "* i finished ...\n"
         "* remove task ...\n"
+        "* delete task ...\n"
+        "* drop task ...\n"
         "* remove done task ...\n"
         "* remove completed task ...\n"
         "* mode default\n"
@@ -559,13 +597,13 @@ def build_status_text(user_id: str, lane: str) -> tuple[str, str]:
     return response_text, active_model
 
 
-def extract_task_text_for_completion(message: str) -> str | None:
+def extract_by_patterns(message: str, patterns: list[str]) -> str | None:
     original = (message or "").strip()
     if not original:
         return None
 
     lowered = original.lower()
-    for pattern in COMPLETE_TASK_PATTERNS:
+    for pattern in patterns:
         match = re.match(pattern, lowered)
         if match:
             extracted = original[match.end():].strip()
@@ -573,38 +611,30 @@ def extract_task_text_for_completion(message: str) -> str | None:
             return extracted or None
 
     return None
+
+
+def extract_task_text_for_completion(message: str) -> str | None:
+    return extract_by_patterns(message, COMPLETE_TASK_PATTERNS)
 
 
 def extract_task_text_for_done_removal(message: str) -> str | None:
-    original = (message or "").strip()
-    if not original:
-        return None
-
-    lowered = original.lower()
-    for pattern in REMOVE_DONE_TASK_PATTERNS:
-        match = re.match(pattern, lowered)
-        if match:
-            extracted = original[match.end():].strip()
-            extracted = re.sub(r"\s+", " ", extracted).strip()
-            return extracted or None
-
-    return None
+    return extract_by_patterns(message, REMOVE_DONE_TASK_PATTERNS)
 
 
 def extract_task_text_for_removal(message: str) -> str | None:
-    original = (message or "").strip()
-    if not original:
-        return None
+    return extract_by_patterns(message, REMOVE_TASK_PATTERNS)
 
-    lowered = original.lower()
-    for pattern in REMOVE_TASK_PATTERNS:
-        match = re.match(pattern, lowered)
-        if match:
-            extracted = original[match.end():].strip()
-            extracted = re.sub(r"\s+", " ", extracted).strip()
-            return extracted or None
 
-    return None
+def extract_memory_text_for_remember(message: str) -> str | None:
+    return extract_by_patterns(message, REMEMBER_PATTERNS)
+
+
+def extract_memory_text_for_recall(message: str) -> str | None:
+    return extract_by_patterns(message, RECALL_PATTERNS)
+
+
+def extract_memory_text_for_forget(message: str) -> str | None:
+    return extract_by_patterns(message, FORGET_MEMORY_PATTERNS)
 
 
 def get_result_flag(result: object, flag_name: str) -> bool:
@@ -761,64 +791,55 @@ async def slack_events(request: Request):
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        if lowered.startswith("remember "):
-            memory_text = user_text[9:].strip()
-            if not memory_text:
-                response_text = "Please tell me what to remember."
-            else:
-                add_memory(
-                    user_id=user_id,
-                    category="note",
-                    content=memory_text,
-                    lane=lane,
-                    visibility=default_visibility,
-                )
-                response_text = f"Got it. I'll remember this in the {lane} lane: {memory_text}"
+        remembered_text = extract_memory_text_for_remember(user_text)
+        if remembered_text:
+            add_memory(
+                user_id=user_id,
+                category="note",
+                content=remembered_text,
+                lane=lane,
+                visibility=default_visibility,
+            )
+            response_text = f"Got it. I'll remember this in the {lane} lane: {remembered_text}"
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        if lowered.startswith("recall "):
-            query = user_text[7:].strip()
-            if not query:
-                response_text = "Please tell me what you want me to recall."
+        recalled_query = extract_memory_text_for_recall(user_text)
+        if recalled_query:
+            raw_results = search_memories(
+                user_id=user_id,
+                query=recalled_query,
+                lane=lane,
+                limit=5,
+            )
+            results = get_safe_memory_items(raw_results, lane)
+            if results:
+                lines = [
+                    f"* [{item['lane']}/{item['visibility']}] {item['content']}"
+                    for item in results
+                ]
+                response_text = "Here is what I found:\n" + "\n".join(lines)
             else:
-                raw_results = search_memories(
-                    user_id=user_id,
-                    query=query,
-                    lane=lane,
-                    limit=5,
-                )
-                results = get_safe_memory_items(raw_results, lane)
-                if results:
-                    lines = [
-                        f"* [{item['lane']}/{item['visibility']}] {item['content']}"
-                        for item in results
-                    ]
-                    response_text = "Here is what I found:\n" + "\n".join(lines)
-                else:
-                    response_text = f"I could not find anything matching that in the {lane} lane."
+                response_text = f"I could not find anything matching that in the {lane} lane."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
             return {"ok": True}
 
-        if lowered.startswith("forget "):
-            query = user_text[7:].strip()
-            if not query:
-                response_text = "Please tell me what you want me to forget."
+        forgotten_query = extract_memory_text_for_forget(user_text)
+        if forgotten_query:
+            deleted = delete_memory_by_query(
+                user_id=user_id,
+                query=forgotten_query,
+                lane=lane,
+            )
+            if was_memory_deleted(deleted):
+                deleted_lane = get_deleted_memory_lane(deleted, lane)
+                response_text = f"Forgot memory in the {deleted_lane} lane matching: {forgotten_query}"
             else:
-                deleted = delete_memory_by_query(
-                    user_id=user_id,
-                    query=query,
-                    lane=lane,
-                )
-                if was_memory_deleted(deleted):
-                    deleted_lane = get_deleted_memory_lane(deleted, lane)
-                    response_text = f"Forgot memory in the {deleted_lane} lane matching: {query}"
-                else:
-                    response_text = f"I could not find anything to forget for: {query} in the {lane} lane."
+                response_text = f"I could not find anything to forget for: {forgotten_query} in the {lane} lane."
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
