@@ -1,5 +1,13 @@
 # Bishop Operating Notes
 
+## Lanes (Slack)
+
+- Each Slack channel maps to a lane
+- Tasks are lane-scoped
+- Memory is lane-scoped by default (private)
+- Shared memory can appear across lanes
+- Use "show lane" or "what lane am i in" to inspect
+
 ## Repo and environment
 
 Source of truth repo:
