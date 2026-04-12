@@ -2035,3 +2035,129 @@ def test_forget_command_is_lane_aware(monkeypatch):
     lanes = [call[2] for call in captured["calls"]]
     assert "C123" in lanes
     assert "C999" in lanes
+
+
+def test_shared_memory_visible_across_users_same_lane(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    memory_store = []
+
+    def fake_add_memory(**kwargs):
+        memory_store.append(kwargs)
+        return {"id": len(memory_store)}
+
+    def fake_get_memories(user_id, lane, limit=20):
+        return [
+            {
+                "content": m["content"],
+                "lane": m["lane"],
+                "visibility": m["visibility"],
+                "owner_user_id": m["user_id"],
+            }
+            for m in memory_store
+            if m["lane"] == lane and m["visibility"] == "shared"
+        ]
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_memories", fake_get_memories)
+    monkeypatch.setattr(slack_route, "get_default_visibility_for_lane", lambda lane: "shared")
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "family")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    client.post(
+        "/slack/events",
+        json=make_event("remember we have dinner at 7", event_id="evt-shared-matt", user_id="U_MATT"),
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("show memory", event_id="evt-shared-carmen", user_id="U_CARMEN"),
+    )
+
+    assert any("dinner at 7" in r for r in captured["responses"])
+
+
+def test_private_memory_not_visible_across_users(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    memory_store = []
+
+    def fake_add_memory(**kwargs):
+        memory_store.append(kwargs)
+        return {"id": len(memory_store)}
+
+    def fake_get_memories(user_id, lane, limit=20):
+        return [
+            {
+                "content": m["content"],
+                "lane": m["lane"],
+                "visibility": m["visibility"],
+                "owner_user_id": m["user_id"],
+            }
+            for m in memory_store
+            if m["lane"] == lane
+            and (m["visibility"] == "shared" or m["user_id"] == user_id)
+        ]
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_memories", fake_get_memories)
+    monkeypatch.setattr(slack_route, "get_default_visibility_for_lane", lambda lane: "private")
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "family")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    client.post(
+        "/slack/events",
+        json=make_event("remember my password is 1234", event_id="evt-private-matt", user_id="U_MATT"),
+    )
+
+    client.post(
+        "/slack/events",
+        json=make_event("show memory", event_id="evt-private-carmen", user_id="U_CARMEN"),
+    )
+
+    assert "password is 1234" not in captured["responses"][-1]
+
+
+def test_user_cannot_delete_another_users_memory(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    memory_store = [{"user_id": "U_MATT", "content": "secret note", "lane": "family"}]
+
+    def fake_delete_memory_by_query(user_id, query, lane):
+        for m in memory_store:
+            if m["content"] == query and m["user_id"] == user_id:
+                memory_store.remove(m)
+                return {"deleted": True, "lane": lane}
+        return {"deleted": False}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "delete_memory_by_query", fake_delete_memory_by_query)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "family")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    client.post(
+        "/slack/events",
+        json=make_event("forget secret note", event_id="evt-delete-other", user_id="U_CARMEN"),
+    )
+
+    assert any("could not find anything to forget" in r.lower() for r in captured["responses"])
