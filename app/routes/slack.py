@@ -20,7 +20,10 @@ from app.services.memory_service import (
     search_memories,
 )
 from app.services.mode_service import VALID_MODES, get_mode, set_mode
-from app.services.profile_service import resolve_bishop_user_id
+from app.services.profile_service import (
+    get_display_name_for_bishop_user_id,
+    resolve_bishop_user_id,
+)
 from app.services.provider_service import get_provider_model, validate_provider_config
 from app.services.provider_state_service import (
     clear_provider_override,
@@ -706,10 +709,21 @@ def normalize_memory_item(item: object, fallback_lane: str) -> dict | None:
     if not isinstance(visibility, str) or not visibility.strip():
         visibility = "unknown"
 
+    owner_user_id = item.get("owner_user_id")
+    if not isinstance(owner_user_id, str) or not owner_user_id.strip():
+        owner_user_id = item.get("user_id")
+        if not isinstance(owner_user_id, str) or not owner_user_id.strip():
+            owner_user_id = "unknown"
+
+    owner_user_id = owner_user_id.strip()
+    owner_display_name = get_display_name_for_bishop_user_id(owner_user_id)
+
     return {
         "lane": lane,
         "visibility": visibility,
         "content": content,
+        "owner_user_id": owner_user_id,
+        "owner_display_name": owner_display_name,
     }
 
 
@@ -724,6 +738,21 @@ def get_safe_memory_items(result: object, fallback_lane: str) -> list[dict]:
             normalized_items.append(normalized_item)
 
     return normalized_items
+
+
+def format_memory_lines(items: list[dict]) -> list[str]:
+    lines = []
+    for item in items:
+        owner_display_name = (item.get("owner_display_name") or "").strip()
+        if owner_display_name:
+            lines.append(
+                f"* [{item['lane']}/{item['visibility']}] {owner_display_name}: {item['content']}"
+            )
+        else:
+            lines.append(
+                f"* [{item['lane']}/{item['visibility']}] {item['content']}"
+            )
+    return lines
 
 
 def was_memory_deleted(result: object) -> bool:
@@ -831,11 +860,7 @@ async def slack_events(request: Request):
             )
             results = get_safe_memory_items(raw_results, lane)
             if results:
-                lines = [
-                    f"* [{item['lane']}/{item['visibility']}] {item['content']}"
-                    for item in results
-                ]
-                response_text = "Here is what I found:\n" + "\n".join(lines)
+                response_text = "Here is what I found:\n" + "\n".join(format_memory_lines(results))
             else:
                 response_text = f"I could not find anything matching that in the {lane} lane."
 
@@ -864,11 +889,9 @@ async def slack_events(request: Request):
             raw_memories = get_memories(user_id=user_id, lane=lane, limit=20)
             memories = get_safe_memory_items(raw_memories, lane)
             if memories:
-                lines = [
-                    f"* [{item['lane']}/{item['visibility']}] {item['content']}"
-                    for item in memories
-                ]
-                response_text = f"Here is what I remember in the {lane} lane:\n" + "\n".join(lines)
+                response_text = f"Here is what I remember in the {lane} lane:\n" + "\n".join(
+                    format_memory_lines(memories)
+                )
             else:
                 response_text = f"I do not have any saved memory yet in the {lane} lane."
 

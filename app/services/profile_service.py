@@ -44,6 +44,23 @@ def get_profile_by_slack_user_id(slack_user_id: str) -> Optional[dict]:
     return profiles.get(slack_user_id.strip())
 
 
+def get_profile_by_bishop_user_id(user_id: str) -> Optional[dict]:
+    if not isinstance(user_id, str) or not user_id.strip():
+        return None
+
+    normalized_user_id = user_id.strip()
+    profiles = _load_profiles()
+
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        profile_user_id = str(profile.get("user_id") or "").strip()
+        if profile_user_id == normalized_user_id:
+            return profile
+
+    return None
+
+
 def resolve_bishop_user_id(slack_user_id: str) -> str:
     """
     Maps a Slack user ID to Bishop's internal user identity.
@@ -94,3 +111,26 @@ def get_display_name(slack_user_id: str) -> str:
         return resolved_user_id
 
     return slack_user_id.strip()
+
+
+def get_display_name_for_bishop_user_id(user_id: str) -> str:
+    """
+    Returns a friendly display name for a stored Bishop user_id.
+
+    Fallback:
+    - display_name from matching profile
+    - original Bishop user_id
+    """
+    if not isinstance(user_id, str) or not user_id.strip():
+        return ""
+
+    normalized_user_id = user_id.strip()
+    profile = get_profile_by_bishop_user_id(normalized_user_id)
+    if not profile:
+        return normalized_user_id
+
+    display_name = str(profile.get("display_name") or "").strip()
+    if display_name:
+        return display_name
+
+
