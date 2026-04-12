@@ -1,0 +1,17 @@
+{
+  "U_MATT": {
+    "user_id": "matt",
+    "display_name": "Matt",
+    "role": "owner"
+  },
+  "U_CARMEN": {
+    "user_id": "carmen",
+    "display_name": "Carmen",
+    "role": "family"
+  },
+  "U_BEN": {
+    "user_id": "ben",
+    "display_name": "Ben",
+    "role": "family"
+  }
+}

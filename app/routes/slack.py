@@ -20,6 +20,7 @@ from app.services.memory_service import (
     search_memories,
 )
 from app.services.mode_service import VALID_MODES, get_mode, set_mode
+from app.services.profile_service import resolve_bishop_user_id
 from app.services.provider_service import get_provider_model, validate_provider_config
 from app.services.provider_state_service import (
     clear_provider_override,
@@ -40,18 +41,6 @@ from app.services.task_service import (
 
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
-
-
-def resolve_bishop_user_id(slack_user_id: str) -> str:
-    """
-    Identity layer for Slack users.
-
-    For now this is a 1:1 mapping so behavior stays exactly the same.
-    Later this gives us one clean place to map Slack users to profiles
-    like matt, carmen, and ben without rewriting the route.
-    """
-    return slack_user_id
-
 
 processed_event_ids = set()
 recent_message_fingerprints: dict[str, float] = {}
@@ -784,7 +773,7 @@ async def slack_events(request: Request):
         return {"ok": True}
 
     slack_user_id = event.get("user")
-    user_id = resolve_bishop_user_id(slack_user_id)
+    user_id = resolve_bishop_user_id(slack_user_id or "")
     channel_id = event.get("channel")
     raw_text = event.get("text", "")
     user_text = strip_app_mention(raw_text)
