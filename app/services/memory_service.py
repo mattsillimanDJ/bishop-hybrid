@@ -97,9 +97,9 @@ def seed_memory():
 
 def _visibility_clause(user_id: str, lane: Optional[str]):
     """
-    Current Bishop compatibility rules:
-    - private: owner only, and lane-specific when lane is provided
-    - shared: visible across all lanes for the same user
+    Shared-lane visibility rules:
+    - private: owner only, lane-specific when lane is provided
+    - shared: visible to all users in the same lane
     - global: visible to everyone
     """
     if lane:
@@ -107,22 +107,21 @@ def _visibility_clause(user_id: str, lane: Optional[str]):
             """
             (
                 (visibility = 'private' AND owner_user_id = ? AND lane = ?)
-                OR (visibility = 'shared' AND owner_user_id = ?)
+                OR (visibility = 'shared' AND lane = ?)
                 OR (visibility = 'global')
             )
             """,
-            (user_id, lane, user_id),
+            (user_id, lane, lane),
         )
 
     return (
         """
         (
             (visibility = 'private' AND owner_user_id = ?)
-            OR (visibility = 'shared' AND owner_user_id = ?)
             OR (visibility = 'global')
         )
         """,
-        (user_id, user_id),
+        (user_id,),
     )
 
 
@@ -230,7 +229,7 @@ def delete_memory_by_query(
     if lane:
         cur.execute(
             """
-            SELECT id, content, lane, visibility
+            SELECT id, content, lane, visibility, owner_user_id
             FROM memory_entries
             WHERE owner_user_id = ?
               AND lane = ?
@@ -243,7 +242,7 @@ def delete_memory_by_query(
     else:
         cur.execute(
             """
-            SELECT id, content, lane, visibility
+            SELECT id, content, lane, visibility, owner_user_id
             FROM memory_entries
             WHERE owner_user_id = ?
               AND LOWER(content) LIKE LOWER(?)
@@ -270,4 +269,5 @@ def delete_memory_by_query(
         "content": row["content"],
         "lane": row["lane"],
         "visibility": row["visibility"],
+        "owner_user_id": row["owner_user_id"],
     }
