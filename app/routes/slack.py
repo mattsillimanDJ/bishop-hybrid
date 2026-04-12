@@ -160,6 +160,18 @@ REMEMBER_PATTERNS = [
     r"^\s*remember\s+",
 ]
 
+REMEMBER_SHARED_PATTERNS = [
+    r"^\s*remember shared that\s+",
+    r"^\s*remember shared this\s+",
+    r"^\s*remember shared\s+",
+]
+
+REMEMBER_PRIVATE_PATTERNS = [
+    r"^\s*remember private that\s+",
+    r"^\s*remember private this\s+",
+    r"^\s*remember private\s+",
+]
+
 RECALL_PATTERNS = [
     r"^\s*recall\s+",
     r"^\s*what do you remember about\s+",
@@ -260,6 +272,10 @@ def help_text() -> str:
         "* remember that ...\n"
         "* remember this ...\n"
         "* can you remember this ...\n"
+        "* remember shared ...\n"
+        "* remember shared that ...\n"
+        "* remember private ...\n"
+        "* remember private that ...\n"
         "* recall ...\n"
         "* what do you remember about ...\n"
         "* forget ...\n"
@@ -646,12 +662,36 @@ def extract_memory_text_for_remember(message: str) -> str | None:
     return extract_by_patterns(message, REMEMBER_PATTERNS)
 
 
+def extract_memory_text_for_remember_shared(message: str) -> str | None:
+    return extract_by_patterns(message, REMEMBER_SHARED_PATTERNS)
+
+
+def extract_memory_text_for_remember_private(message: str) -> str | None:
+    return extract_by_patterns(message, REMEMBER_PRIVATE_PATTERNS)
+
+
 def extract_memory_text_for_recall(message: str) -> str | None:
     return extract_by_patterns(message, RECALL_PATTERNS)
 
 
 def extract_memory_text_for_forget(message: str) -> str | None:
     return extract_by_patterns(message, FORGET_MEMORY_PATTERNS)
+
+
+def resolve_memory_visibility(user_text: str, lane_default_visibility: str) -> tuple[str, str | None, bool]:
+    remembered_text = extract_memory_text_for_remember_shared(user_text)
+    if remembered_text:
+        return "shared", remembered_text, True
+
+    remembered_text = extract_memory_text_for_remember_private(user_text)
+    if remembered_text:
+        return "private", remembered_text, True
+
+    remembered_text = extract_memory_text_for_remember(user_text)
+    if remembered_text:
+        return lane_default_visibility, remembered_text, False
+
+    return lane_default_visibility, None, False
 
 
 def get_result_flag(result: object, flag_name: str) -> bool:
@@ -836,16 +876,25 @@ async def slack_events(request: Request):
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        remembered_text = extract_memory_text_for_remember(user_text)
+        memory_visibility, remembered_text, is_explicit_visibility = resolve_memory_visibility(
+            user_text=user_text,
+            lane_default_visibility=default_visibility,
+        )
         if remembered_text:
             add_memory(
                 user_id=user_id,
                 category="note",
                 content=remembered_text,
                 lane=lane,
-                visibility=default_visibility,
+                visibility=memory_visibility,
             )
-            response_text = f"Got it. I'll remember this in the {lane} lane: {remembered_text}"
+            if is_explicit_visibility:
+                response_text = (
+                    f"Got it. I'll remember this as {memory_visibility} in the {lane} lane: "
+                    f"{remembered_text}"
+                )
+            else:
+                response_text = f"Got it. I'll remember this in the {lane} lane: {remembered_text}"
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
