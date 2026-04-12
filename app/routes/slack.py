@@ -740,19 +740,20 @@ def get_safe_memory_items(result: object, fallback_lane: str) -> list[dict]:
     return normalized_items
 
 
+def format_memory_line(item: dict) -> str:
+    owner_display_name = (item.get("owner_display_name") or "").strip()
+    visibility = (item.get("visibility") or "unknown").strip()
+    lane = (item.get("lane") or "unknown").strip()
+    content = (item.get("content") or "").strip()
+
+    if owner_display_name:
+        return f"* {owner_display_name} {visibility} in {lane}: {content}"
+
+    return f"* {visibility} in {lane}: {content}"
+
+
 def format_memory_lines(items: list[dict]) -> list[str]:
-    lines = []
-    for item in items:
-        owner_display_name = (item.get("owner_display_name") or "").strip()
-        if owner_display_name:
-            lines.append(
-                f"* [{item['lane']}/{item['visibility']}] {owner_display_name}: {item['content']}"
-            )
-        else:
-            lines.append(
-                f"* [{item['lane']}/{item['visibility']}] {item['content']}"
-            )
-    return lines
+    return [format_memory_line(item) for item in items]
 
 
 def was_memory_deleted(result: object) -> bool:

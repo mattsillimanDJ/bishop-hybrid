@@ -64,7 +64,7 @@ def test_format_memory_lines_includes_owner_display_name():
 
     lines = slack_route.format_memory_lines(items)
 
-    assert lines == ["* [family/shared] Matt: dinner at 7"]
+    assert lines == ["* Matt shared in family: dinner at 7"]
 
 
 def test_format_memory_lines_handles_multiple_people():
@@ -87,8 +87,8 @@ def test_format_memory_lines_handles_multiple_people():
 
     lines = slack_route.format_memory_lines(items)
 
-    assert "* [family/shared] Matt: dinner at 7" in lines
-    assert "* [family/private] Carmen: book the vet" in lines
+    assert "* Matt shared in family: dinner at 7" in lines
+    assert "* Carmen private in family: book the vet" in lines
 
 
 def test_format_memory_lines_falls_back_when_display_name_empty():
@@ -104,7 +104,7 @@ def test_format_memory_lines_falls_back_when_display_name_empty():
 
     lines = slack_route.format_memory_lines(items)
 
-    assert lines == ["* [work/private] mystery note"]
+    assert lines == ["* private in work: mystery note"]
 
 
 def test_get_safe_memory_items_adds_attribution_for_valid_items():
