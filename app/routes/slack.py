@@ -41,6 +41,18 @@ from app.services.task_service import (
 router = APIRouter()
 slack_client = WebClient(token=settings.SLACK_BOT_TOKEN)
 
+
+def resolve_bishop_user_id(slack_user_id: str) -> str:
+    """
+    Identity layer for Slack users.
+
+    For now this is a 1:1 mapping so behavior stays exactly the same.
+    Later this gives us one clean place to map Slack users to profiles
+    like matt, carmen, and ben without rewriting the route.
+    """
+    return slack_user_id
+
+
 processed_event_ids = set()
 recent_message_fingerprints: dict[str, float] = {}
 
@@ -771,7 +783,8 @@ async def slack_events(request: Request):
     if event.get("bot_id"):
         return {"ok": True}
 
-    user_id = event.get("user")
+    slack_user_id = event.get("user")
+    user_id = resolve_bishop_user_id(slack_user_id)
     channel_id = event.get("channel")
     raw_text = event.get("text", "")
     user_text = strip_app_mention(raw_text)
@@ -1135,4 +1148,3 @@ async def slack_events(request: Request):
         response_text = "Sorry, something went wrong while handling that Slack message."
         post_message(channel_id, response_text)
         return {"ok": True}
-

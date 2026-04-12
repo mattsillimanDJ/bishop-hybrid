@@ -23,6 +23,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS memory_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL,
+            owner_user_id TEXT DEFAULT 'matt',
             category TEXT NOT NULL,
             content TEXT NOT NULL,
             lane TEXT DEFAULT 'matt',
@@ -38,6 +39,11 @@ def init_db():
 
     try:
         cur.execute("ALTER TABLE memory_entries ADD COLUMN visibility TEXT DEFAULT 'private'")
+    except Exception:
+        pass
+
+    try:
+        cur.execute("ALTER TABLE memory_entries ADD COLUMN owner_user_id TEXT DEFAULT 'matt'")
     except Exception:
         pass
 
@@ -68,16 +74,18 @@ def seed_memory():
     for item in items:
         cur.execute(
             """
-            INSERT INTO memory_entries (user_id, category, content, lane, visibility)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO memory_entries
+            (user_id, owner_user_id, category, content, lane, visibility)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 item["user_id"],
+                item.get("owner_user_id", item["user_id"]),
                 item["category"],
                 item["content"],
                 item.get("lane", "matt"),
                 item.get("visibility", "private"),
-            )
+            ),
         )
         inserted += 1
 
@@ -85,6 +93,37 @@ def seed_memory():
     conn.close()
 
     return {"seeded": inserted, "message": "Seed memory loaded"}
+
+
+def _visibility_clause(user_id: str, lane: Optional[str]):
+    """
+    Current Bishop compatibility rules:
+    - private: owner only, and lane-specific when lane is provided
+    - shared: visible across all lanes for the same user
+    - global: visible to everyone
+    """
+    if lane:
+        return (
+            """
+            (
+                (visibility = 'private' AND owner_user_id = ? AND lane = ?)
+                OR (visibility = 'shared' AND owner_user_id = ?)
+                OR (visibility = 'global')
+            )
+            """,
+            (user_id, lane, user_id),
+        )
+
+    return (
+        """
+        (
+            (visibility = 'private' AND owner_user_id = ?)
+            OR (visibility = 'shared' AND owner_user_id = ?)
+            OR (visibility = 'global')
+        )
+        """,
+        (user_id, user_id),
+    )
 
 
 def get_memories(
@@ -96,34 +135,17 @@ def get_memories(
     conn = get_connection()
     cur = conn.cursor()
 
-    if lane:
-        cur.execute(
-            """
-            SELECT id, user_id, category, content, lane, visibility, created_at
-            FROM memory_entries
-            WHERE user_id = ?
-              AND (
-                    lane = ?
-                    OR visibility = 'shared'
-                    OR visibility = 'global'
-                  )
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            (user_id, lane, limit),
-        )
-    else:
-        cur.execute(
-            """
-            SELECT id, user_id, category, content, lane, visibility, created_at
-            FROM memory_entries
-            WHERE user_id = ?
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            (user_id, limit),
-        )
+    clause, params = _visibility_clause(user_id, lane)
 
+    sql = f"""
+        SELECT id, user_id, owner_user_id, category, content, lane, visibility, created_at
+        FROM memory_entries
+        WHERE {clause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+    """
+
+    cur.execute(sql, (*params, limit))
     rows = cur.fetchall()
     conn.close()
 
@@ -143,10 +165,11 @@ def add_memory(
 
     cur.execute(
         """
-        INSERT INTO memory_entries (user_id, category, content, lane, visibility)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO memory_entries
+        (user_id, owner_user_id, category, content, lane, visibility)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (user_id, category, content, lane, visibility),
+        (user_id, user_id, category, content, lane, visibility),
     )
 
     conn.commit()
@@ -156,6 +179,7 @@ def add_memory(
     return {
         "id": memory_id,
         "user_id": user_id,
+        "owner_user_id": user_id,
         "category": category,
         "content": content,
         "lane": lane,
@@ -174,37 +198,18 @@ def search_memories(
     cur = conn.cursor()
 
     like_query = f"%{query}%"
+    clause, params = _visibility_clause(user_id, lane)
 
-    if lane:
-        cur.execute(
-            """
-            SELECT id, user_id, category, content, lane, visibility, created_at
-            FROM memory_entries
-            WHERE user_id = ?
-              AND LOWER(content) LIKE LOWER(?)
-              AND (
-                    lane = ?
-                    OR visibility = 'shared'
-                    OR visibility = 'global'
-                  )
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            (user_id, like_query, lane, limit),
-        )
-    else:
-        cur.execute(
-            """
-            SELECT id, user_id, category, content, lane, visibility, created_at
-            FROM memory_entries
-            WHERE user_id = ?
-              AND LOWER(content) LIKE LOWER(?)
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            (user_id, like_query, limit),
-        )
+    sql = f"""
+        SELECT id, user_id, owner_user_id, category, content, lane, visibility, created_at
+        FROM memory_entries
+        WHERE LOWER(content) LIKE LOWER(?)
+          AND {clause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+    """
 
+    cur.execute(sql, (like_query, *params, limit))
     rows = cur.fetchall()
     conn.close()
 
@@ -227,24 +232,20 @@ def delete_memory_by_query(
             """
             SELECT id, content, lane, visibility
             FROM memory_entries
-            WHERE user_id = ?
+            WHERE owner_user_id = ?
+              AND lane = ?
               AND LOWER(content) LIKE LOWER(?)
-              AND (
-                    lane = ?
-                    OR visibility = 'shared'
-                    OR visibility = 'global'
-                  )
             ORDER BY created_at DESC, id DESC
             LIMIT 1
             """,
-            (user_id, like_query, lane),
+            (user_id, lane, like_query),
         )
     else:
         cur.execute(
             """
             SELECT id, content, lane, visibility
             FROM memory_entries
-            WHERE user_id = ?
+            WHERE owner_user_id = ?
               AND LOWER(content) LIKE LOWER(?)
             ORDER BY created_at DESC, id DESC
             LIMIT 1
@@ -258,10 +259,7 @@ def delete_memory_by_query(
         conn.close()
         return {"deleted": False, "message": "No matching memory found"}
 
-    cur.execute(
-        "DELETE FROM memory_entries WHERE id = ?",
-        (row["id"],),
-    )
+    cur.execute("DELETE FROM memory_entries WHERE id = ?", (row["id"],))
 
     conn.commit()
     conn.close()
@@ -273,4 +271,3 @@ def delete_memory_by_query(
         "lane": row["lane"],
         "visibility": row["visibility"],
     }
-

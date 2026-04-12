@@ -3,9 +3,9 @@ import pytest
 from app.services import memory_service
 from app.services.memory_service import (
     add_memory,
+    delete_memory_by_query,
     get_memories,
     search_memories,
-    delete_memory_by_query,
 )
 
 
@@ -127,3 +127,105 @@ def test_get_memories_is_clean_per_lane_even_with_duplicates():
 
     assert work_memories[0]["content"] == "duplicate memory"
     assert dj_memories[0]["content"] == "duplicate memory"
+
+
+def test_private_memory_is_isolated_between_users_in_same_lane():
+    matt_user_id = "matt_user"
+    carmen_user_id = "carmen_user"
+
+    add_memory(matt_user_id, "note", "matt private family note", lane="family", visibility="private")
+    add_memory(carmen_user_id, "note", "carmen private family note", lane="family", visibility="private")
+
+    matt_memories = get_memories(user_id=matt_user_id, lane="family")
+    carmen_memories = get_memories(user_id=carmen_user_id, lane="family")
+
+    assert any("matt private family note" in m["content"] for m in matt_memories)
+    assert not any("carmen private family note" in m["content"] for m in matt_memories)
+
+    assert any("carmen private family note" in m["content"] for m in carmen_memories)
+    assert not any("matt private family note" in m["content"] for m in carmen_memories)
+
+
+def test_search_private_memory_is_isolated_between_users_in_same_lane():
+    matt_user_id = "matt_user_search"
+    carmen_user_id = "carmen_user_search"
+
+    add_memory(matt_user_id, "note", "shared phrase matt private", lane="family", visibility="private")
+    add_memory(carmen_user_id, "note", "shared phrase carmen private", lane="family", visibility="private")
+
+    matt_results = search_memories(user_id=matt_user_id, query="shared phrase", lane="family")
+    carmen_results = search_memories(user_id=carmen_user_id, query="shared phrase", lane="family")
+
+    assert any("shared phrase matt private" in r["content"] for r in matt_results)
+    assert not any("shared phrase carmen private" in r["content"] for r in matt_results)
+
+    assert any("shared phrase carmen private" in r["content"] for r in carmen_results)
+    assert not any("shared phrase matt private" in r["content"] for r in carmen_results)
+
+
+def test_delete_private_memory_only_affects_requesting_user_in_same_lane():
+    matt_user_id = "matt_user_delete"
+    carmen_user_id = "carmen_user_delete"
+
+    add_memory(matt_user_id, "note", "same family delete target", lane="family", visibility="private")
+    add_memory(carmen_user_id, "note", "same family delete target", lane="family", visibility="private")
+
+    result = delete_memory_by_query(
+        user_id=matt_user_id,
+        query="same family delete target",
+        lane="family",
+    )
+
+    assert result["deleted"] is True
+    assert result["lane"] == "family"
+
+    matt_memories = get_memories(user_id=matt_user_id, lane="family")
+    carmen_memories = get_memories(user_id=carmen_user_id, lane="family")
+
+    assert not any("same family delete target" in m["content"] for m in matt_memories)
+    assert any("same family delete target" in m["content"] for m in carmen_memories)
+
+
+def test_shared_memory_remains_owner_scoped_across_different_users():
+    matt_user_id = "matt_user_shared"
+    carmen_user_id = "carmen_user_shared"
+
+    add_memory(matt_user_id, "note", "matt shared family item", lane="family", visibility="shared")
+
+    matt_memories = get_memories(user_id=matt_user_id, lane="family")
+    carmen_memories = get_memories(user_id=carmen_user_id, lane="family")
+
+    assert any("matt shared family item" in m["content"] for m in matt_memories)
+    assert not any("matt shared family item" in m["content"] for m in carmen_memories)
+
+
+def test_shared_search_remains_owner_scoped_across_different_users():
+    matt_user_id = "matt_user_shared_search"
+    carmen_user_id = "carmen_user_shared_search"
+
+    add_memory(matt_user_id, "note", "owner scoped shared idea", lane="family", visibility="shared")
+
+    matt_results = search_memories(user_id=matt_user_id, query="shared idea", lane="family")
+    carmen_results = search_memories(user_id=carmen_user_id, query="shared idea", lane="family")
+
+    assert any("owner scoped shared idea" in r["content"] for r in matt_results)
+    assert not any("owner scoped shared idea" in r["content"] for r in carmen_results)
+
+
+def test_memory_records_include_owner_user_id():
+    user_id = "owner_field_user"
+
+    created = add_memory(
+        user_id=user_id,
+        category="note",
+        content="owner field memory",
+        lane="work",
+        visibility="private",
+    )
+
+    memories = get_memories(user_id=user_id, lane="work")
+
+    assert created["owner_user_id"] == user_id
+    assert len(memories) == 1
+    assert memories[0]["owner_user_id"] == user_id
+    assert memories[0]["content"] == "owner field memory"
