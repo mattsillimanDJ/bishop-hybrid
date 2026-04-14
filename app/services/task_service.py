@@ -68,6 +68,10 @@ def init_task_table() -> None:
         conn.commit()
 
 
+def normalize_lane(lane: str | None) -> str:
+    return (lane or "general").strip().lower()
+
+
 def normalize_task_text(task_text: str) -> str:
     task_text = (task_text or "").strip().lower()
     task_text = re.sub(r"\s+", " ", task_text)
@@ -91,6 +95,50 @@ def truncate_task_text(task_text: str, limit: int = 160) -> str:
     return task_text[: limit - 3].rstrip() + "..."
 
 
+def build_task_result(
+    *,
+    task_id: int,
+    user_id: str,
+    lane: str,
+    channel_id: Optional[str],
+    session_id: Optional[str],
+    status: str,
+    source_message: str,
+    task_text: str,
+    assistant_commitment: Optional[str],
+    created: bool = False,
+    deduped: bool = False,
+) -> Dict:
+    return {
+        "id": task_id,
+        "user_id": user_id,
+        "lane": lane,
+        "channel_id": channel_id,
+        "session_id": session_id,
+        "status": status,
+        "source_message": source_message,
+        "task_text": task_text,
+        "assistant_commitment": assistant_commitment,
+        "created": created,
+        "deduped": deduped,
+    }
+
+
+def build_task_action_result(
+    *,
+    status: str,
+    task: Dict | None,
+    updated: bool = False,
+    deleted: bool = False,
+) -> Dict:
+    return {
+        "status": status,
+        "task": task,
+        "updated": updated,
+        "deleted": deleted,
+    }
+
+
 def looks_like_explicit_task_command(message: str) -> bool:
     message = (message or "").strip()
     if not message:
@@ -110,7 +158,7 @@ def extract_task_text_from_explicit_command(message: str) -> str | None:
     for pattern in EXPLICIT_TASK_PREFIX_PATTERNS:
         match = re.match(pattern, lowered)
         if match:
-            extracted = original[match.end():].strip()
+            extracted = original[match.end() :].strip()
             extracted = format_task_text(extracted)
             return extracted or None
 
@@ -138,7 +186,7 @@ def extract_task_text_from_reminder_request(message: str) -> str | None:
 
     to_match = re.search(r"\bto\b", lowered)
     if to_match:
-        extracted = original[to_match.end():].strip()
+        extracted = original[to_match.end() :].strip()
         extracted = format_task_text(extracted)
         return extracted or None
 
@@ -146,7 +194,7 @@ def extract_task_text_from_reminder_request(message: str) -> str | None:
     for pattern in REMINDER_REQUEST_PATTERNS:
         match = re.match(pattern, lowered)
         if match:
-            cleaned = original[match.end():].strip()
+            cleaned = original[match.end() :].strip()
             break
 
     cleaned = format_task_text(cleaned)
@@ -154,7 +202,9 @@ def extract_task_text_from_reminder_request(message: str) -> str | None:
 
 
 def should_capture_task_from_user_message(message: str) -> bool:
-    return looks_like_explicit_task_command(message) or looks_like_reminder_request(message)
+    return looks_like_explicit_task_command(message) or looks_like_reminder_request(
+        message
+    )
 
 
 def build_task_text_from_user_message(message: str) -> str | None:
@@ -184,7 +234,12 @@ def find_recent_matching_task(
     if not normalized_candidate:
         return None
 
-    recent_tasks = get_tasks(user_id=user_id, lane=lane, status=status, limit=limit)
+    recent_tasks = get_tasks(
+        user_id=user_id,
+        lane=lane,
+        status=status,
+        limit=limit,
+    )
     for task in recent_tasks:
         existing_normalized = normalize_task_text(task.get("task_text", ""))
         if existing_normalized == normalized_candidate:
@@ -208,7 +263,12 @@ def find_matching_task_by_text(
     if not normalized_candidate:
         return None
 
-    tasks = get_tasks(user_id=user_id, lane=lane, status=status, limit=limit)
+    tasks = get_tasks(
+        user_id=user_id,
+        lane=lane,
+        status=status,
+        limit=limit,
+    )
     for task in tasks:
         existing_normalized = normalize_task_text(task.get("task_text", ""))
         if existing_normalized == normalized_candidate:
@@ -233,7 +293,7 @@ def add_task(
 
     init_task_table()
 
-    normalized_lane = (lane or "general").strip().lower()
+    normalized_lane = normalize_lane(lane)
     normalized_task_text = truncate_task_text(task_text)
     if not normalized_task_text:
         raise ValueError("task_text cannot be empty")
@@ -246,19 +306,19 @@ def add_task(
             status=status,
         )
         if existing_task:
-            return {
-                "id": existing_task["id"],
-                "user_id": existing_task["user_id"],
-                "lane": existing_task["lane"],
-                "channel_id": existing_task["channel_id"],
-                "session_id": existing_task["session_id"],
-                "status": existing_task["status"],
-                "source_message": existing_task["source_message"],
-                "task_text": existing_task["task_text"],
-                "assistant_commitment": existing_task["assistant_commitment"],
-                "created": False,
-                "deduped": True,
-            }
+            return build_task_result(
+                task_id=existing_task["id"],
+                user_id=existing_task["user_id"],
+                lane=existing_task["lane"],
+                channel_id=existing_task["channel_id"],
+                session_id=existing_task["session_id"],
+                status=existing_task["status"],
+                source_message=existing_task["source_message"],
+                task_text=existing_task["task_text"],
+                assistant_commitment=existing_task["assistant_commitment"],
+                created=False,
+                deduped=True,
+            )
 
     with get_connection() as conn:
         cursor = conn.execute(
@@ -290,19 +350,19 @@ def add_task(
         conn.commit()
         task_id = cursor.lastrowid
 
-    return {
-        "id": task_id,
-        "user_id": user_id,
-        "lane": normalized_lane,
-        "channel_id": channel_id,
-        "session_id": session_id,
-        "status": status,
-        "source_message": source_message,
-        "task_text": normalized_task_text,
-        "assistant_commitment": assistant_commitment,
-        "created": True,
-        "deduped": False,
-    }
+    return build_task_result(
+        task_id=task_id,
+        user_id=user_id,
+        lane=normalized_lane,
+        channel_id=channel_id,
+        session_id=session_id,
+        status=status,
+        source_message=source_message,
+        task_text=normalized_task_text,
+        assistant_commitment=assistant_commitment,
+        created=True,
+        deduped=False,
+    )
 
 
 def get_tasks(
@@ -313,7 +373,7 @@ def get_tasks(
 ) -> List[Dict]:
     init_task_table()
 
-    normalized_lane = (lane or "general").strip().lower()
+    normalized_lane = normalize_lane(lane)
 
     query = (
         "SELECT id, user_id, lane, channel_id, session_id, status, source_message, "
@@ -354,7 +414,11 @@ def mark_task_done(
         limit=limit,
     )
     if not matching_task:
-        return {"updated": False, "task": None}
+        return build_task_action_result(
+            status="not_found",
+            task=None,
+            updated=False,
+        )
 
     with get_connection() as conn:
         conn.execute(
@@ -370,7 +434,12 @@ def mark_task_done(
 
     updated_task = dict(matching_task)
     updated_task["status"] = "done"
-    return {"updated": True, "task": updated_task}
+
+    return build_task_action_result(
+        status="updated",
+        task=updated_task,
+        updated=True,
+    )
 
 
 def remove_task(
@@ -391,13 +460,21 @@ def remove_task(
         limit=limit,
     )
     if not matching_task:
-        return {"deleted": False, "task": None}
+        return build_task_action_result(
+            status="not_found",
+            task=None,
+            deleted=False,
+        )
 
     with get_connection() as conn:
         conn.execute("DELETE FROM tasks WHERE id = ?", (matching_task["id"],))
         conn.commit()
 
-    return {"deleted": True, "task": matching_task}
+    return build_task_action_result(
+        status="deleted",
+        task=matching_task,
+        deleted=True,
+    )
 
 
 def clear_tasks(
@@ -407,7 +484,7 @@ def clear_tasks(
 ) -> Dict:
     init_task_table()
 
-    normalized_lane = (lane or "general").strip().lower()
+    normalized_lane = normalize_lane(lane)
 
     query = "DELETE FROM tasks WHERE user_id = ? AND lane = ?"
     params: list = [user_id, normalized_lane]
