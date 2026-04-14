@@ -694,10 +694,34 @@ def resolve_memory_visibility(user_text: str, lane_default_visibility: str) -> t
     return lane_default_visibility, None, False
 
 
+def get_result_status(result: object) -> str | None:
+    if not isinstance(result, dict):
+        return None
+
+    status = result.get("status")
+    if not isinstance(status, str):
+        return None
+
+    normalized_status = status.strip().lower()
+    return normalized_status or None
+
+
 def get_result_flag(result: object, flag_name: str) -> bool:
     if not isinstance(result, dict):
         return False
-    return bool(result.get(flag_name))
+
+    if bool(result.get(flag_name)):
+        return True
+
+    status = get_result_status(result)
+
+    if flag_name == "updated":
+        return status == "updated"
+
+    if flag_name == "deleted":
+        return status == "deleted"
+
+    return False
 
 
 def get_result_task_text(result: object, fallback_text: str) -> str:
