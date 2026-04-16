@@ -738,7 +738,6 @@ def get_result_task_text(result: object, fallback_text: str) -> str:
 
     return fallback_text
 
-
 def get_deleted_count(result: object) -> int:
     if not isinstance(result, dict):
         return 0
@@ -753,34 +752,31 @@ def get_deleted_count(result: object) -> int:
         return 0
 
 
+def clean_string(value: object, fallback: str = "") -> str:
+    if not isinstance(value, str):
+        return fallback
+    cleaned = value.strip()
+    return cleaned or fallback
+
+
 def normalize_memory_item(item: object, fallback_lane: str) -> dict | None:
     if not isinstance(item, dict):
         return None
 
-    content = item.get("content")
-    if not isinstance(content, str):
-        return None
-
-    content = content.strip()
+    content = clean_string(item.get("content"))
     if not content:
         return None
 
-    lane = item.get("lane")
-    if not isinstance(lane, str) or not lane.strip():
-        lane = fallback_lane
+    lane = clean_string(item.get("lane"), fallback_lane)
+    visibility = clean_string(item.get("visibility"), "unknown")
 
-    visibility = item.get("visibility")
-    if not isinstance(visibility, str) or not visibility.strip():
-        visibility = "unknown"
+    owner_user_id = clean_string(item.get("owner_user_id"))
+    if not owner_user_id:
+        owner_user_id = clean_string(item.get("user_id"), "unknown")
 
-    owner_user_id = item.get("owner_user_id")
-    if not isinstance(owner_user_id, str) or not owner_user_id.strip():
-        owner_user_id = item.get("user_id")
-        if not isinstance(owner_user_id, str) or not owner_user_id.strip():
-            owner_user_id = "unknown"
-
-    owner_user_id = owner_user_id.strip()
-    owner_display_name = get_display_name_for_bishop_user_id(owner_user_id)
+    owner_display_name = clean_string(get_display_name_for_bishop_user_id(owner_user_id))
+    if not owner_display_name and owner_user_id != "unknown":
+        owner_display_name = owner_user_id
 
     return {
         "lane": lane,
@@ -798,17 +794,20 @@ def get_safe_memory_items(result: object, fallback_lane: str) -> list[dict]:
     normalized_items = []
     for item in result:
         normalized_item = normalize_memory_item(item, fallback_lane)
-        if normalized_item:
+        if normalized_item is not None:
             normalized_items.append(normalized_item)
 
     return normalized_items
 
 
 def format_memory_line(item: dict) -> str:
-    owner_display_name = (item.get("owner_display_name") or "").strip()
-    visibility = (item.get("visibility") or "unknown").strip()
-    lane = (item.get("lane") or "unknown").strip()
-    content = (item.get("content") or "").strip()
+    if not isinstance(item, dict):
+        return "* unknown in unknown:"
+
+    owner_display_name = clean_string(item.get("owner_display_name"))
+    visibility = clean_string(item.get("visibility"), "unknown")
+    lane = clean_string(item.get("lane"), "unknown")
+    content = clean_string(item.get("content"))
 
     if owner_display_name:
         return f"* {owner_display_name} {visibility} in {lane}: {content}"
@@ -821,18 +820,13 @@ def format_memory_lines(items: list[dict]) -> list[str]:
 
 
 def was_memory_deleted(result: object) -> bool:
-    if not isinstance(result, dict):
-        return False
-    return bool(result.get("deleted"))
+    return get_deleted_count(result) > 0
 
 
 def get_deleted_memory_lane(result: object, fallback_lane: str) -> str:
-    if isinstance(result, dict):
-        lane = result.get("lane")
-        if isinstance(lane, str) and lane.strip():
-            return lane.strip()
-    return fallback_lane
-
+    if not isinstance(result, dict):
+        return fallback_lane
+    return clean_string(result.get("lane"), fallback_lane)
 
 @router.post("/slack/events")
 async def slack_events(request: Request):
