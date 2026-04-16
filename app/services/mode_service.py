@@ -3,7 +3,7 @@ from pathlib import Path
 
 DB_PATH = Path("app/data/bishop_memory.db")
 
-VALID_MODES = {"default", "work", "personal"}
+VALID_MODES = {"default", "work", "personal", "website"}
 
 
 def init_mode_table() -> None:

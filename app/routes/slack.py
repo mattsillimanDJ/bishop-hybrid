@@ -314,6 +314,7 @@ def help_text() -> str:
         "* mode default\n"
         "* mode work\n"
         "* mode personal\n"
+        "* mode website\n"
         "* show mode\n"
         "* provider\n"
         "* show provider\n"
