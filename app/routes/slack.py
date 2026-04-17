@@ -1214,40 +1214,53 @@ async def slack_events(request: Request):
             ]
             post_message(channel_id, random.choice(working_messages))
 
-        response_text = generate_reply(user_id=user_id, message=expanded_user_text)
-
-        effective_provider = get_effective_provider()
-        active_model = get_provider_model(effective_provider) or "not set"
-
-        if response_contains_commitment(response_text):
-            task_result = add_task_for_lane(
-                user_id=user_id,
-                lane=lane,
-                channel_id=channel_id,
-                session_id=channel_id,
-                source_message=user_text,
-                task_text=user_text,
-                assistant_commitment=response_text,
-                status="pending",
+        try:
+            response_text = generate_reply(user_id=user_id, message=expanded_user_text)
+            if not response_text or not response_text.strip():
+                raise ValueError("Empty response from generate_reply")
+        except Exception as e:
+            print(f"[Bishop] generate_reply failed: {str(e)}")
+            response_text = (
+                "I hit an issue while putting that together. "
+                "Send it again and I’ll take another pass."
             )
-            if isinstance(task_result, dict) and task_result.get("deduped"):
-                result_task_text = task_result.get("task_text", user_text)
-                print(f"Skipped duplicate commitment task for user {user_id} in {lane}: {result_task_text}")
 
         post_message(channel_id, response_text)
 
-        log_conversation(
-            platform="slack",
-            user_id=user_id,
-            channel_id=channel_id,
-            session_id=channel_id,
-            user_message=user_text,
-            assistant_response=response_text,
-            memory_used=True,
-            mode=get_mode(user_id),
-            provider=effective_provider,
-            model=active_model,
-        )
+        try:
+            effective_provider = get_effective_provider()
+            active_model = get_provider_model(effective_provider) or "not set"
+
+            if response_contains_commitment(response_text):
+                task_result = add_task_for_lane(
+                    user_id=user_id,
+                    lane=lane,
+                    channel_id=channel_id,
+                    session_id=channel_id,
+                    source_message=user_text,
+                    task_text=user_text,
+                    assistant_commitment=response_text,
+                    status="pending",
+                )
+                if isinstance(task_result, dict) and task_result.get("deduped"):
+                    result_task_text = task_result.get("task_text", user_text)
+                    print(f"Skipped duplicate commitment task for user {user_id} in {lane}: {result_task_text}")
+
+            log_conversation(
+                platform="slack",
+                user_id=user_id,
+                channel_id=channel_id,
+                session_id=channel_id,
+                user_message=user_text,
+                assistant_response=response_text,
+                memory_used=True,
+                mode=get_mode(user_id),
+                provider=effective_provider,
+                model=active_model,
+            )
+        except Exception as e:
+            print(f"[Bishop] post-processing failed: {str(e)}")
+
         return {"ok": True}
 
     except Exception as e:
