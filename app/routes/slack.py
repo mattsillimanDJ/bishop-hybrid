@@ -1,3 +1,4 @@
+import random
 import re
 import time
 from typing import Optional
@@ -263,6 +264,20 @@ def is_duplicate_recent_message(user_id: str, channel_id: str, user_text: str) -
 
     recent_message_fingerprints[fingerprint] = now
     return False
+
+
+def should_send_working_message(user_text: str) -> bool:
+    normalized = normalize_message_for_dedupe(user_text)
+    if not normalized:
+        return False
+
+    if normalized in SHORT_FOLLOWUP_MESSAGES:
+        return False
+
+    if len(normalized) < 25:
+        return False
+
+    return True
 
 
 def help_text() -> str:
@@ -739,6 +754,7 @@ def get_result_task_text(result: object, fallback_text: str) -> str:
 
     return fallback_text
 
+
 def get_deleted_count(result: object) -> int:
     if not isinstance(result, dict):
         return 0
@@ -828,6 +844,7 @@ def get_deleted_memory_lane(result: object, fallback_lane: str) -> str:
     if not isinstance(result, dict):
         return fallback_lane
     return clean_string(result.get("lane"), fallback_lane)
+
 
 @router.post("/slack/events")
 async def slack_events(request: Request):
@@ -1188,6 +1205,15 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
+
+        if should_send_working_message(user_text):
+            working_messages = [
+                "Got it, working through that now.",
+                "Working on this now, I’ll make it practical.",
+                "Thinking it through and putting structure around it.",
+            ]
+            post_message(channel_id, random.choice(working_messages))
+
         response_text = generate_reply(user_id=user_id, message=expanded_user_text)
 
         effective_provider = get_effective_provider()
