@@ -57,8 +57,9 @@ def generate_memory_context(user_id: str, message: str, limit: int = 8) -> str:
     for query in extract_queries(message):
         results = search_memories(user_id=user_id, query=query, limit=limit)
         for item in results:
-            if item["id"] not in seen:
-                seen.add(item["id"])
+            item_id = item.get("id")
+            if item_id not in seen:
+                seen.add(item_id)
                 matches.append(item)
 
     if not matches:
@@ -140,8 +141,8 @@ def get_mode_system_prompt(mode: str) -> str:
             base
             + " "
             + "You are Bishop in website mode for Matt. "
-            + "Website mode: operate as a strategist, UX planner, and builder. "
-            + "Always default to this sequence unless told otherwise: "
+            + "Website mode: operate as a strategist, UX planner, copywriter, and builder. "
+            + "Always default to this sequence unless Matt clearly asks for something narrower: "
             + "1) clarify audience and goal, "
             + "2) define positioning and messaging, "
             + "3) outline structure, pages, sections, and flow, "
@@ -149,12 +150,39 @@ def get_mode_system_prompt(mode: str) -> str:
             + "5) give practical build guidance for Framer, layout, UX, and SEO basics. "
             + "Prefer structured outputs with clear hierarchy. "
             + "When useful, organize answers into Strategy, Structure, Copy, and Build Notes. "
-            + "Avoid vague ideas. Be specific, usable, and build-ready. "
-            + "Think like a combination of creative director, product strategist, UX planner, and web builder."
+            + "Avoid vague ideas, generic best practices, and safe filler. "
+            + "Be specific, usable, opinionated, and build-ready. "
+            + "Use Matt's known identity, style, business context, and brand clues from memory whenever relevant. "
+            + "If the task is about Matt's DJ brand, event brand, creative company, or personal website, do not answer like it is for a generic person. "
+            + "Make the output feel like it was built for Matt specifically. "
+            + "Pull forward relevant brand traits, voice, audience, city, aesthetic, offer, and positioning if memory supports them. "
+            + "For DJ and event work especially, prioritize feelgood house energy, crowd connection, nightlife credibility, real-world conversion, and a premium but alive tone when relevant. "
+            + "Think like a combination of creative director, product strategist, UX planner, brand writer, and web builder."
         ),
     }
 
     return prompts.get(mode, prompts["default"])
+
+
+def get_personalization_guidance(mode: str, memory_context: str) -> str:
+    if mode != "website":
+        return ""
+
+    if not memory_context or memory_context == "No relevant memory found.":
+        return (
+            "Website personalization guidance:\n"
+            "- Use any clear user-specific clues from the current message.\n"
+            "- If identity details are missing, make a reasonable first-pass structure but flag where real brand details should be inserted.\n"
+            "- Avoid making the answer feel generic if the request appears personal or brand-specific.\n"
+        )
+
+    return (
+        "Website personalization guidance:\n"
+        "- The memory below likely contains brand, identity, style, audience, or positioning clues.\n"
+        "- Use those details actively, not passively.\n"
+        "- If relevant memory points to Matt's DJ brand, creative work, events, nightlife style, or business goals, reflect that in the strategy, structure, and copy.\n"
+        "- Prefer a distinctive point of view over generic website advice.\n"
+    )
 
 
 def response_contains_commitment(response_text: str) -> bool:
@@ -179,6 +207,7 @@ def generate_reply(user_id: str, message: str) -> str:
     memory_context = generate_memory_context(user_id=user_id, message=message)
     task_context = generate_task_context(user_id=user_id)
     system_prompt = get_mode_system_prompt(mode)
+    personalization_guidance = get_personalization_guidance(mode, memory_context)
     provider = get_effective_provider()
 
     user_prompt = f"""
@@ -191,6 +220,8 @@ Pending tasks:
 Relevant memory:
 {memory_context}
 
+{personalization_guidance}
+
 User message:
 {message}
 """.strip()
@@ -199,6 +230,8 @@ User message:
     print(f"[Bishop] Mode: {mode}")
     print(f"[Bishop] Pending tasks: {task_context}")
     print(f"[Bishop] Memory context: {memory_context}")
+    if personalization_guidance:
+        print(f"[Bishop] Personalization guidance: {personalization_guidance}")
 
     return generate_text(
         provider=provider,
