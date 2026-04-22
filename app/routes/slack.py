@@ -300,6 +300,8 @@ def help_text() -> str:
         "* please forget this ...\n"
         "* stop remembering ...\n"
         "* show memory\n"
+        "* show all memory\n"
+        "* what do you remember in full\n"
         "* show recent conversations\n"
         "* show last 5 conversations\n"
         "* show lane\n"
@@ -779,6 +781,28 @@ def clean_string(value: object, fallback: str = "") -> str:
 
 LOW_SIGNAL_MEMORY_CATEGORIES = frozenset({"profile", "preference"})
 
+BOILERPLATE_MEMORY_CONTENTS = frozenset(
+    {
+        "user's name is matt.",
+        "matt is an advertising executive and dj.",
+        "bishop is a private ai workspace for work, dj/music, family, carmen, and general life.",
+        "matt prefers clear, practical, strategic help.",
+        "matt wants bishop to feel like a personal ai operating system, not a generic chatbot.",
+    }
+)
+
+
+def suppress_boilerplate_memory_items(items: list[dict]) -> list[dict]:
+    filtered = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        normalized = clean_string(item.get("content")).casefold()
+        if normalized in BOILERPLATE_MEMORY_CONTENTS:
+            continue
+        filtered.append(item)
+    return filtered
+
 
 def normalize_memory_item(item: object, fallback_lane: str) -> dict | None:
     if not isinstance(item, dict):
@@ -879,10 +903,14 @@ def get_deleted_memory_lane(result: object, fallback_lane: str) -> str:
     return clean_string(result.get("lane"), fallback_lane)
 
 
-def build_lane_memory_response(user_id: str, lane: str) -> str:
+def build_lane_memory_response(
+    user_id: str, lane: str, include_boilerplate: bool = False
+) -> str:
     raw_memories = get_memories(user_id=user_id, lane=lane, limit=20)
     memories = get_safe_memory_items(raw_memories, lane)
     memories = rerank_memory_items(dedupe_memory_items(memories))
+    if not include_boilerplate:
+        memories = suppress_boilerplate_memory_items(memories)
     if memories:
         return f"Here is what I remember in the {lane} lane:\n" + "\n".join(
             format_memory_lines(memories)
@@ -948,6 +976,15 @@ async def slack_events(request: Request):
 
         if lowered in {"what do you remember", "show memory"}:
             response_text = build_lane_memory_response(user_id=user_id, lane=lane)
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
+            return {"ok": True}
+
+        if lowered in {"show all memory", "what do you remember in full"}:
+            response_text = build_lane_memory_response(
+                user_id=user_id, lane=lane, include_boilerplate=True
+            )
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)

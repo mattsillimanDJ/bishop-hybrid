@@ -2161,3 +2161,95 @@ def test_user_cannot_delete_another_users_memory(monkeypatch):
     )
 
     assert any("could not find anything to forget" in r.lower() for r in captured["responses"])
+
+
+def test_show_memory_suppresses_boilerplate_by_default(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_memories(user_id, lane, limit=20):
+        return [
+            {
+                "content": "dinner at 7",
+                "lane": lane,
+                "visibility": "shared",
+                "owner_user_id": "matt",
+                "category": "note",
+            },
+            {
+                "content": "User's name is Matt.",
+                "lane": lane,
+                "visibility": "shared",
+                "owner_user_id": "matt",
+                "category": "profile",
+            },
+        ]
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_memories", fake_get_memories)
+    monkeypatch.setattr(slack_route, "get_default_visibility_for_lane", lambda lane: "shared")
+    monkeypatch.setattr(
+        slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "family"
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    client.post(
+        "/slack/events",
+        json=make_event("show memory", event_id="evt-show-mem-default", user_id="U_MATT"),
+    )
+
+    assert captured["responses"], "expected a response"
+    response = captured["responses"][-1]
+    assert "dinner at 7" in response
+    assert "User's name is Matt." not in response
+
+
+def test_show_all_memory_includes_boilerplate(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_memories(user_id, lane, limit=20):
+        return [
+            {
+                "content": "dinner at 7",
+                "lane": lane,
+                "visibility": "shared",
+                "owner_user_id": "matt",
+                "category": "note",
+            },
+            {
+                "content": "User's name is Matt.",
+                "lane": lane,
+                "visibility": "shared",
+                "owner_user_id": "matt",
+                "category": "profile",
+            },
+        ]
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_memories", fake_get_memories)
+    monkeypatch.setattr(slack_route, "get_default_visibility_for_lane", lambda lane: "shared")
+    monkeypatch.setattr(
+        slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "family"
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    client.post(
+        "/slack/events",
+        json=make_event("show all memory", event_id="evt-show-all-mem", user_id="U_MATT"),
+    )
+
+    assert captured["responses"], "expected a response"
+    response = captured["responses"][-1]
+    assert "dinner at 7" in response
+    assert "User's name is Matt." in response

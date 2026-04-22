@@ -210,6 +210,120 @@ def test_rerank_is_case_insensitive_on_category():
     assert [i["content"] for i in reranked] == ["actionable", "identity line"]
 
 
+def test_suppress_boilerplate_filters_known_identity_lines():
+    items = [
+        {"content": "User's name is Matt."},
+        {"content": "Matt is an advertising executive and DJ."},
+        {"content": "Bishop is a private AI workspace for work, DJ/music, family, Carmen, and general life."},
+        {"content": "Matt prefers clear, practical, strategic help."},
+        {"content": "Matt wants Bishop to feel like a personal AI operating system, not a generic chatbot."},
+        {"content": "dinner at 7"},
+    ]
+
+    filtered = slack_route.suppress_boilerplate_memory_items(items)
+
+    assert [i["content"] for i in filtered] == ["dinner at 7"]
+
+
+def test_suppress_boilerplate_is_case_and_whitespace_insensitive():
+    items = [
+        {"content": "  user's name is matt.  "},
+        {"content": "USER'S NAME IS MATT."},
+        {"content": "Matt's favorite color is blue."},
+    ]
+
+    filtered = slack_route.suppress_boilerplate_memory_items(items)
+
+    assert [i["content"] for i in filtered] == ["Matt's favorite color is blue."]
+
+
+def test_suppress_boilerplate_preserves_non_boilerplate_profile_notes():
+    items = [
+        {"content": "User's name is Matt.", "category": "profile"},
+        {"content": "Matt's blood type is O+.", "category": "profile"},
+        {"content": "Matt prefers vegan meals.", "category": "preference"},
+    ]
+
+    filtered = slack_route.suppress_boilerplate_memory_items(items)
+    contents = [i["content"] for i in filtered]
+
+    assert "User's name is Matt." not in contents
+    assert "Matt's blood type is O+." in contents
+    assert "Matt prefers vegan meals." in contents
+
+
+def test_build_lane_memory_response_suppresses_boilerplate_by_default(monkeypatch):
+    raw = [
+        {
+            "content": "dinner at 7",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "note",
+        },
+        {
+            "content": "User's name is Matt.",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "profile",
+        },
+    ]
+
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=20: raw,
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_display_name_for_bishop_user_id",
+        lambda user_id: "Matt",
+    )
+
+    response = slack_route.build_lane_memory_response(user_id="matt", lane="family")
+
+    assert "dinner at 7" in response
+    assert "User's name is Matt." not in response
+
+
+def test_build_lane_memory_response_include_boilerplate_shows_all(monkeypatch):
+    raw = [
+        {
+            "content": "dinner at 7",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "note",
+        },
+        {
+            "content": "User's name is Matt.",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "profile",
+        },
+    ]
+
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=20: raw,
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_display_name_for_bishop_user_id",
+        lambda user_id: "Matt",
+    )
+
+    response = slack_route.build_lane_memory_response(
+        user_id="matt", lane="family", include_boilerplate=True
+    )
+
+    assert "dinner at 7" in response
+    assert "User's name is Matt." in response
+
+
 def test_build_lane_memory_response_dedupes_and_reranks(monkeypatch):
     raw = [
         {
@@ -259,7 +373,16 @@ def test_build_lane_memory_response_dedupes_and_reranks(monkeypatch):
     assert lines[0] == "Here is what I remember in the family lane:"
     body = lines[1:]
 
-    assert len(body) == 3
+    assert len(body) == 2
     assert "dinner at 7" in body[0]
     assert "book the vet" in body[1]
-    assert "User's name is Matt." in body[2]
+    assert "User's name is Matt." not in response
+
+    full_response = slack_route.build_lane_memory_response(
+        user_id="matt", lane="family", include_boilerplate=True
+    )
+    full_body = full_response.splitlines()[1:]
+    assert len(full_body) == 3
+    assert "dinner at 7" in full_body[0]
+    assert "book the vet" in full_body[1]
+    assert "User's name is Matt." in full_body[2]
