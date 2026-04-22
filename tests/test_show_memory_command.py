@@ -72,6 +72,49 @@ def test_show_memory_returns_all_lane_memories(monkeypatch):
     assert "* Carmen private in family: buy gift" in captured["text"]
 
 
+def test_what_do_you_remember_returns_lane_memory(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_memories(*args, **kwargs):
+        return [
+            {
+                "content": "dinner at 7",
+                "lane": "family",
+                "visibility": "shared",
+                "owner_user_id": "matt",
+            }
+        ]
+
+    def fail_generate_reply(*args, **kwargs):
+        raise AssertionError("generate_reply should not be called for 'what do you remember'")
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_memories", fake_get_memories)
+    monkeypatch.setattr(slack_route, "generate_reply", fail_generate_reply)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda *args, **kwargs: "family")
+    monkeypatch.setattr(
+        slack_route,
+        "get_display_name_for_bishop_user_id",
+        lambda user_id: "Matt",
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what do you remember", event_id="evt-what-do-you-remember"),
+    )
+
+    assert response.status_code == 200
+    assert "Here is what I remember in the family lane:" in captured["text"]
+    assert "* Matt shared in family: dinner at 7" in captured["text"]
+
+
 def test_show_memory_handles_empty(monkeypatch):
     reset_route_state()
     captured = {}

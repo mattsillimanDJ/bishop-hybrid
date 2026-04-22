@@ -148,6 +148,39 @@ def test_remember_shared_overrides_lane_default(monkeypatch):
     assert captured["content"] == "team dinner"
 
 
+def test_remember_this_colon_strips_prefix(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_add_memory(*args, **kwargs):
+        captured["visibility"] = kwargs.get("visibility")
+        captured["content"] = kwargs.get("content")
+
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: {"ok": True})
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_lane_from_channel",
+        lambda channel_id, resolver=None: "family",
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_default_visibility_for_lane",
+        lambda lane: "shared",
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("remember this: dinner at 7", event_id="evt-remember-this-colon"),
+    )
+
+    assert response.status_code == 200
+    assert captured["content"] == "dinner at 7"
+    assert captured["visibility"] == "shared"
+
+
 def test_remember_private_overrides_lane_default(monkeypatch):
     reset_route_state()
     captured = {}

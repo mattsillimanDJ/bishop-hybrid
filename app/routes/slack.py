@@ -154,38 +154,38 @@ REMOVE_TASK_PATTERNS = [
 ]
 
 REMEMBER_PATTERNS = [
-    r"^\s*can you remember this\s+",
-    r"^\s*please remember this\s+",
-    r"^\s*remember this\s+",
-    r"^\s*remember that\s+",
-    r"^\s*remember\s+",
+    r"^\s*can you remember this(?:\s*[:,-]\s*|\s+)",
+    r"^\s*please remember this(?:\s*[:,-]\s*|\s+)",
+    r"^\s*remember this(?:\s*[:,-]\s*|\s+)",
+    r"^\s*remember that(?:\s*[:,-]\s*|\s+)",
+    r"^\s*remember(?:\s*[:,-]\s*|\s+)",
 ]
 
 REMEMBER_SHARED_PATTERNS = [
-    r"^\s*remember shared that\s+",
-    r"^\s*remember shared this\s+",
-    r"^\s*remember shared\s+",
+    r"^\s*remember shared that(?:\s*[:,-]\s*|\s+)",
+    r"^\s*remember shared this(?:\s*[:,-]\s*|\s+)",
+    r"^\s*remember shared(?:\s*[:,-]\s*|\s+)",
 ]
 
 REMEMBER_PRIVATE_PATTERNS = [
-    r"^\s*remember private that\s+",
-    r"^\s*remember private this\s+",
-    r"^\s*remember private\s+",
+    r"^\s*remember private that(?:\s*[:,-]\s*|\s+)",
+    r"^\s*remember private this(?:\s*[:,-]\s*|\s+)",
+    r"^\s*remember private(?:\s*[:,-]\s*|\s+)",
 ]
 
 RECALL_PATTERNS = [
-    r"^\s*recall\s+",
-    r"^\s*what do you remember about\s+",
-    r"^\s*what do you remember of\s+",
-    r"^\s*what do you know about\s+",
+    r"^\s*recall(?:\s*[:,-]\s*|\s+)",
+    r"^\s*what do you remember about(?:\s*[:,-]\s*|\s+)",
+    r"^\s*what do you remember of(?:\s*[:,-]\s*|\s+)",
+    r"^\s*what do you know about(?:\s*[:,-]\s*|\s+)",
 ]
 
 FORGET_MEMORY_PATTERNS = [
-    r"^\s*please forget this\s+",
-    r"^\s*forget this\s+",
-    r"^\s*forget that\s+",
-    r"^\s*forget\s+",
-    r"^\s*stop remembering\s+",
+    r"^\s*please forget this(?:\s*[:,-]\s*|\s+)",
+    r"^\s*forget this(?:\s*[:,-]\s*|\s+)",
+    r"^\s*forget that(?:\s*[:,-]\s*|\s+)",
+    r"^\s*forget(?:\s*[:,-]\s*|\s+)",
+    r"^\s*stop remembering(?:\s*[:,-]\s*|\s+)",
 ]
 
 
@@ -292,6 +292,7 @@ def help_text() -> str:
         "* remember private ...\n"
         "* remember private that ...\n"
         "* recall ...\n"
+        "* what do you remember\n"
         "* what do you remember about ...\n"
         "* forget ...\n"
         "* forget that ...\n"
@@ -846,6 +847,16 @@ def get_deleted_memory_lane(result: object, fallback_lane: str) -> str:
     return clean_string(result.get("lane"), fallback_lane)
 
 
+def build_lane_memory_response(user_id: str, lane: str) -> str:
+    raw_memories = get_memories(user_id=user_id, lane=lane, limit=20)
+    memories = get_safe_memory_items(raw_memories, lane)
+    if memories:
+        return f"Here is what I remember in the {lane} lane:\n" + "\n".join(
+            format_memory_lines(memories)
+        )
+    return f"I do not have any saved memory yet in the {lane} lane."
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request):
     body = await request.json()
@@ -900,6 +911,13 @@ async def slack_events(request: Request):
             response_text = help_text()
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in {"what do you remember", "show memory"}:
+            response_text = build_lane_memory_response(user_id=user_id, lane=lane)
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
             return {"ok": True}
 
         if lowered in LANE_QUERY_MESSAGES:
@@ -969,20 +987,6 @@ async def slack_events(request: Request):
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
-            return {"ok": True}
-
-        if lowered == "show memory":
-            raw_memories = get_memories(user_id=user_id, lane=lane, limit=20)
-            memories = get_safe_memory_items(raw_memories, lane)
-            if memories:
-                response_text = f"Here is what I remember in the {lane} lane:\n" + "\n".join(
-                    format_memory_lines(memories)
-                )
-            else:
-                response_text = f"I do not have any saved memory yet in the {lane} lane."
-
-            post_message(channel_id, response_text)
-            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
             return {"ok": True}
 
         requested_limit = get_requested_conversation_limit(lowered)
