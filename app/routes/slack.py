@@ -777,6 +777,9 @@ def clean_string(value: object, fallback: str = "") -> str:
     return cleaned or fallback
 
 
+LOW_SIGNAL_MEMORY_CATEGORIES = frozenset({"profile", "preference"})
+
+
 def normalize_memory_item(item: object, fallback_lane: str) -> dict | None:
     if not isinstance(item, dict):
         return None
@@ -787,6 +790,7 @@ def normalize_memory_item(item: object, fallback_lane: str) -> dict | None:
 
     lane = clean_string(item.get("lane"), fallback_lane)
     visibility = clean_string(item.get("visibility"), "unknown")
+    category = clean_string(item.get("category"))
 
     owner_user_id = clean_string(item.get("owner_user_id"))
     if not owner_user_id:
@@ -799,10 +803,38 @@ def normalize_memory_item(item: object, fallback_lane: str) -> dict | None:
     return {
         "lane": lane,
         "visibility": visibility,
+        "category": category,
         "content": content,
         "owner_user_id": owner_user_id,
         "owner_display_name": owner_display_name,
     }
+
+
+def dedupe_memory_items(items: list[dict]) -> list[dict]:
+    seen = set()
+    deduped = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = (
+            clean_string(item.get("lane"), "unknown"),
+            clean_string(item.get("visibility"), "unknown"),
+            clean_string(item.get("owner_user_id"), "unknown"),
+            clean_string(item.get("content")).casefold(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def rerank_memory_items(items: list[dict]) -> list[dict]:
+    def is_low_signal(item: dict) -> int:
+        category = clean_string(item.get("category")).casefold()
+        return 1 if category in LOW_SIGNAL_MEMORY_CATEGORIES else 0
+
+    return sorted(items, key=is_low_signal)
 
 
 def get_safe_memory_items(result: object, fallback_lane: str) -> list[dict]:
@@ -850,6 +882,7 @@ def get_deleted_memory_lane(result: object, fallback_lane: str) -> str:
 def build_lane_memory_response(user_id: str, lane: str) -> str:
     raw_memories = get_memories(user_id=user_id, lane=lane, limit=20)
     memories = get_safe_memory_items(raw_memories, lane)
+    memories = rerank_memory_items(dedupe_memory_items(memories))
     if memories:
         return f"Here is what I remember in the {lane} lane:\n" + "\n".join(
             format_memory_lines(memories)
