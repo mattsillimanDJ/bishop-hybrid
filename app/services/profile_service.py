@@ -115,11 +115,16 @@ def get_display_name(slack_user_id: str) -> str:
 
 def get_display_name_for_bishop_user_id(user_id: str) -> str:
     """
-    Returns a friendly display name for a stored Bishop user_id.
+    Returns a friendly display name for a stored memory owner id.
 
-    Fallback:
-    - display_name from matching profile
-    - original Bishop user_id
+    The stored owner id may be either a resolved Bishop user_id (e.g. "matt")
+    or a raw Slack user id (e.g. "U_MATT") — the latter happens when a memory
+    was written before the Slack id was present in user_profiles.json.
+
+    Fallback order:
+    - display_name from profile matched by Bishop user_id
+    - display_name from profile matched by Slack user_id
+    - original id
     """
     if not isinstance(user_id, str) or not user_id.strip():
         return ""
@@ -127,10 +132,14 @@ def get_display_name_for_bishop_user_id(user_id: str) -> str:
     normalized_user_id = user_id.strip()
     profile = get_profile_by_bishop_user_id(normalized_user_id)
     if not profile:
+        profile = get_profile_by_slack_user_id(normalized_user_id)
+    if not profile:
         return normalized_user_id
 
     display_name = str(profile.get("display_name") or "").strip()
     if display_name:
         return display_name
+
+    return normalized_user_id
 
 

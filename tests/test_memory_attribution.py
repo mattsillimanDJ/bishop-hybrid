@@ -130,6 +130,52 @@ def test_get_safe_memory_items_adds_attribution_for_valid_items():
     assert items[1]["owner_display_name"] == "Carmen"
 
 
+def test_normalize_memory_item_maps_raw_slack_id_to_display_name():
+    item = {
+        "content": "dinner at 7",
+        "lane": "family",
+        "visibility": "shared",
+        "owner_user_id": "U_MATT",
+    }
+
+    normalized = slack_route.normalize_memory_item(item, fallback_lane="family")
+
+    assert normalized is not None
+    assert normalized["owner_user_id"] == "U_MATT"
+    assert normalized["owner_display_name"] == "Matt"
+
+
+def test_normalize_memory_item_maps_matts_real_slack_id_to_display_name():
+    item = {
+        "content": "pick up groceries",
+        "lane": "family",
+        "visibility": "private",
+        "owner_user_id": "U0APV86TLF3",
+    }
+
+    normalized = slack_route.normalize_memory_item(item, fallback_lane="family")
+
+    assert normalized is not None
+    assert normalized["owner_user_id"] == "U0APV86TLF3"
+    assert normalized["owner_display_name"] == "Matt"
+
+
+def test_format_memory_lines_uses_display_name_for_raw_slack_id_owner():
+    raw_items = [
+        {
+            "content": "dinner at 7",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "U_MATT",
+        }
+    ]
+
+    items = slack_route.get_safe_memory_items(raw_items, fallback_lane="family")
+    lines = slack_route.format_memory_lines(items)
+
+    assert lines == ["* Matt shared in family: dinner at 7"]
+
+
 def test_get_safe_memory_items_ignores_invalid_entries():
     raw_items = [
         {"content": "", "lane": "family", "visibility": "shared", "owner_user_id": "matt"},
