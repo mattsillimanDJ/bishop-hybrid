@@ -910,7 +910,9 @@ def build_lane_memory_response(
     memories = get_safe_memory_items(raw_memories, lane)
     memories = rerank_memory_items(dedupe_memory_items(memories))
     if not include_boilerplate:
-        memories = suppress_boilerplate_memory_items(memories)
+        suppressed = suppress_boilerplate_memory_items(memories)
+        if suppressed or not memories:
+            memories = suppressed
     if memories:
         return f"Here is what I remember in the {lane} lane:\n" + "\n".join(
             format_memory_lines(memories)

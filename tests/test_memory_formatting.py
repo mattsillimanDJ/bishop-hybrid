@@ -324,6 +324,62 @@ def test_build_lane_memory_response_include_boilerplate_shows_all(monkeypatch):
     assert "User's name is Matt." in response
 
 
+def test_build_lane_memory_response_falls_back_to_boilerplate_when_only_boilerplate_exists(
+    monkeypatch,
+):
+    raw = [
+        {
+            "content": "User's name is Matt.",
+            "lane": "matt",
+            "visibility": "private",
+            "owner_user_id": "matt",
+            "category": "profile",
+        },
+        {
+            "content": "Matt prefers clear, practical, strategic help.",
+            "lane": "matt",
+            "visibility": "private",
+            "owner_user_id": "matt",
+            "category": "preference",
+        },
+    ]
+
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=20: raw,
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_display_name_for_bishop_user_id",
+        lambda user_id: "Matt",
+    )
+
+    response = slack_route.build_lane_memory_response(user_id="matt", lane="matt")
+
+    assert "I do not have any saved memory yet" not in response
+    assert "Here is what I remember in the matt lane:" in response
+    assert "User's name is Matt." in response
+    assert "Matt prefers clear, practical, strategic help." in response
+
+
+def test_build_lane_memory_response_empty_lane_still_returns_empty_state(monkeypatch):
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=20: [],
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_display_name_for_bishop_user_id",
+        lambda user_id: "Matt",
+    )
+
+    response = slack_route.build_lane_memory_response(user_id="matt", lane="matt")
+
+    assert response == "I do not have any saved memory yet in the matt lane."
+
+
 def test_build_lane_memory_response_dedupes_and_reranks(monkeypatch):
     raw = [
         {
