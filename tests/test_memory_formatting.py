@@ -237,6 +237,127 @@ def test_suppress_boilerplate_is_case_and_whitespace_insensitive():
     assert [i["content"] for i in filtered] == ["Matt's favorite color is blue."]
 
 
+def test_normalize_memory_content_for_suppression_canonicalizes_variants():
+    canonical = slack_route.normalize_memory_content_for_suppression(
+        "Bishop is a private AI workspace for work, DJ/music, family, Carmen, and general life."
+    )
+
+    assert canonical == slack_route.normalize_memory_content_for_suppression(
+        "  Bishop is a private AI workspace for work, DJ/music, family, Carmen, and general life  "
+    )
+    assert canonical == slack_route.normalize_memory_content_for_suppression(
+        "Bishop is a private AI workspace for work, DJ/music, family, Carmen, and general life"
+    )
+    assert canonical == slack_route.normalize_memory_content_for_suppression(
+        "BISHOP IS A PRIVATE AI WORKSPACE FOR WORK, DJ/MUSIC, FAMILY, CARMEN, AND GENERAL LIFE!"
+    )
+
+
+def test_normalize_memory_content_for_suppression_handles_non_string():
+    assert slack_route.normalize_memory_content_for_suppression(None) == ""
+    assert slack_route.normalize_memory_content_for_suppression(42) == ""
+
+
+def test_suppress_boilerplate_tolerates_em_dash_variant_of_chatbot_line():
+    items = [
+        {
+            "content": (
+                "Matt wants Bishop to feel like a personal AI operating system "
+                "— not a generic chatbot."
+            )
+        },
+        {
+            "content": (
+                "Matt wants Bishop to feel like a personal AI operating system "
+                "– not a generic chatbot."
+            )
+        },
+    ]
+
+    assert slack_route.suppress_boilerplate_memory_items(items) == []
+
+
+def test_suppress_boilerplate_tolerates_missing_period_and_extra_whitespace_for_workspace_line():
+    items = [
+        {
+            "content": (
+                "Bishop is a private AI workspace for work, DJ/music, family, "
+                "Carmen, and general life"
+            )
+        },
+        {
+            "content": (
+                "  Bishop  is  a  private  AI  workspace  for  work, DJ/music, "
+                "family, Carmen, and general life.  "
+            )
+        },
+    ]
+
+    assert slack_route.suppress_boilerplate_memory_items(items) == []
+
+
+def test_suppress_boilerplate_tolerates_curly_apostrophe_in_identity_line():
+    items = [{"content": "User’s name is Matt."}]
+
+    assert slack_route.suppress_boilerplate_memory_items(items) == []
+
+
+def test_suppress_boilerplate_still_suppresses_exact_matches_and_passes_through_other_content():
+    items = [
+        {"content": "User's name is Matt."},
+        {"content": "Matt's favorite color is blue."},
+        {"content": "dinner at 7"},
+    ]
+
+    assert [i["content"] for i in slack_route.suppress_boilerplate_memory_items(items)] == [
+        "Matt's favorite color is blue.",
+        "dinner at 7",
+    ]
+
+
+def test_build_lane_memory_response_falls_back_when_only_boilerplate_variants_exist(monkeypatch):
+    raw = [
+        {
+            "content": (
+                "Matt wants Bishop to feel like a personal AI operating system "
+                "— not a generic chatbot."
+            ),
+            "lane": "matt",
+            "visibility": "private",
+            "owner_user_id": "matt",
+            "category": "profile",
+        },
+        {
+            "content": (
+                "Bishop is a private AI workspace for work, DJ/music, family, "
+                "Carmen, and general life"
+            ),
+            "lane": "matt",
+            "visibility": "private",
+            "owner_user_id": "matt",
+            "category": "profile",
+        },
+    ]
+
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=20: raw,
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_display_name_for_bishop_user_id",
+        lambda user_id: "Matt",
+    )
+
+    response = slack_route.build_lane_memory_response(user_id="matt", lane="matt")
+
+    assert "I do not have any saved memory yet" not in response
+    assert "Here is what I remember in the matt lane:" in response
+    assert "— not a generic chatbot." in response
+    assert "Bishop is a private AI workspace for work, DJ/music, family, Carmen, and general life" in response
+
+
 def test_suppress_boilerplate_preserves_non_boilerplate_profile_notes():
     items = [
         {"content": "User's name is Matt.", "category": "profile"},

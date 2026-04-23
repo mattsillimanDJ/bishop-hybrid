@@ -817,14 +817,40 @@ BOILERPLATE_MEMORY_CONTENTS = frozenset(
     }
 )
 
+_SUPPRESSION_WHITESPACE_PATTERN = re.compile(r"\s+")
+_SUPPRESSION_SPACE_BEFORE_COMMA_PATTERN = re.compile(r"\s+,")
+_SUPPRESSION_TRAILING_PUNCT_PATTERN = re.compile(r"[.!?]+$")
+
+
+def normalize_memory_content_for_suppression(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = (
+        value.replace("‘", "'")
+        .replace("’", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("—", ",")
+        .replace("–", ",")
+    )
+    normalized = _SUPPRESSION_WHITESPACE_PATTERN.sub(" ", normalized).strip()
+    normalized = _SUPPRESSION_SPACE_BEFORE_COMMA_PATTERN.sub(",", normalized)
+    normalized = _SUPPRESSION_TRAILING_PUNCT_PATTERN.sub("", normalized)
+    return normalized.casefold()
+
+
+_NORMALIZED_BOILERPLATE_MEMORY_CONTENTS = frozenset(
+    normalize_memory_content_for_suppression(entry) for entry in BOILERPLATE_MEMORY_CONTENTS
+)
+
 
 def suppress_boilerplate_memory_items(items: list[dict]) -> list[dict]:
     filtered = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        normalized = clean_string(item.get("content")).casefold()
-        if normalized in BOILERPLATE_MEMORY_CONTENTS:
+        normalized = normalize_memory_content_for_suppression(item.get("content"))
+        if normalized in _NORMALIZED_BOILERPLATE_MEMORY_CONTENTS:
             continue
         filtered.append(item)
     return filtered
