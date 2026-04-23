@@ -407,6 +407,67 @@ def delete_memory_by_query(
     }
 
 
+def delete_memory_by_exact_content(
+    user_id: str,
+    content: str,
+    lane: Optional[str] = None,
+) -> Dict:
+    init_db()
+    conn = get_connection()
+    cur = conn.cursor()
+
+    normalized = (content or "").strip()
+    if not normalized:
+        conn.close()
+        return {"deleted": False, "message": "No content provided"}
+
+    if lane:
+        cur.execute(
+            """
+            SELECT id, content, lane, visibility, owner_user_id
+            FROM memory_entries
+            WHERE owner_user_id = ?
+              AND lane = ?
+              AND LOWER(TRIM(content)) = LOWER(?)
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (user_id, lane, normalized),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, content, lane, visibility, owner_user_id
+            FROM memory_entries
+            WHERE owner_user_id = ?
+              AND LOWER(TRIM(content)) = LOWER(?)
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (user_id, normalized),
+        )
+
+    row = cur.fetchone()
+
+    if not row:
+        conn.close()
+        return {"deleted": False, "message": "No exact match found"}
+
+    cur.execute("DELETE FROM memory_entries WHERE id = ?", (row["id"],))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "deleted": True,
+        "id": row["id"],
+        "content": row["content"],
+        "lane": row["lane"],
+        "visibility": row["visibility"],
+        "owner_user_id": row["owner_user_id"],
+    }
+
+
 def cleanup_duplicate_memories(dry_run: bool = False) -> Dict:
     init_db()
     conn = get_connection()

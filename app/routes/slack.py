@@ -16,6 +16,7 @@ from app.services.conversation_log_service import (
 from app.services.lane_service import get_default_visibility_for_lane, get_lane_from_channel
 from app.services.memory_service import (
     add_memory,
+    delete_memory_by_exact_content,
     delete_memory_by_query,
     get_memories,
     search_memories,
@@ -186,6 +187,10 @@ FORGET_MEMORY_PATTERNS = [
     r"^\s*forget that(?:\s*[:,-]\s*|\s+)",
     r"^\s*forget(?:\s*[:,-]\s*|\s+)",
     r"^\s*stop remembering(?:\s*[:,-]\s*|\s+)",
+]
+
+EXACT_FORGET_MEMORY_PATTERNS = [
+    r"^\s*forget exact memory(?:\s*[:,-]\s*|\s+)",
 ]
 
 
@@ -697,6 +702,10 @@ def extract_memory_text_for_forget(message: str) -> str | None:
     return extract_by_patterns(message, FORGET_MEMORY_PATTERNS)
 
 
+def extract_memory_text_for_exact_forget(message: str) -> str | None:
+    return extract_by_patterns(message, EXACT_FORGET_MEMORY_PATTERNS)
+
+
 def resolve_memory_visibility(user_text: str, lane_default_visibility: str) -> tuple[str, str | None, bool]:
     remembered_text = extract_memory_text_for_remember_shared(user_text)
     if remembered_text:
@@ -1167,6 +1176,28 @@ async def slack_events(request: Request):
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
+            return {"ok": True}
+
+        exact_forget_query = extract_memory_text_for_exact_forget(user_text)
+        if exact_forget_query:
+            deleted = delete_memory_by_exact_content(
+                user_id=user_id,
+                content=exact_forget_query,
+                lane=lane,
+            )
+            if was_memory_deleted(deleted):
+                deleted_lane = get_deleted_memory_lane(deleted, lane)
+                response_text = (
+                    f"Forgot exact memory in the {deleted_lane} lane: {exact_forget_query}"
+                )
+            else:
+                response_text = (
+                    f"I could not find an exact match to forget in the {lane} lane: "
+                    f"{exact_forget_query}"
+                )
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
         forgotten_query = extract_memory_text_for_forget(user_text)
