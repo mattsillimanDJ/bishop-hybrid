@@ -1000,6 +1000,31 @@ def build_lane_memory_response(
     return "\n".join(sections)
 
 
+def build_lane_memory_section_response(user_id: str, lane: str, section: str) -> str:
+    raw_memories = get_memories(user_id=user_id, lane=lane, limit=20)
+    memories = get_safe_memory_items(raw_memories, lane)
+    memories = rerank_memory_items(dedupe_memory_items(memories))
+    suppressed = suppress_boilerplate_memory_items(memories)
+    if suppressed or not memories:
+        memories = suppressed
+
+    working, background = partition_memory_items_by_profile(memories)
+
+    if section == "working":
+        items = working
+        header = f"Working memory in the {lane} lane:"
+        empty = f"I do not have any working memory yet in the {lane} lane."
+    else:
+        items = background
+        header = f"Background profile in the {lane} lane:"
+        empty = f"I do not have any background profile yet in the {lane} lane."
+
+    if not items:
+        return empty
+
+    return header + "\n" + "\n".join(format_memory_lines(items))
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request):
     body = await request.json()
@@ -1068,6 +1093,24 @@ async def slack_events(request: Request):
         if memory_command_key in {"show all memory", "what do you remember in full"}:
             response_text = build_lane_memory_response(
                 user_id=user_id, lane=lane, include_boilerplate=True
+            )
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
+            return {"ok": True}
+
+        if memory_command_key == "show working memory":
+            response_text = build_lane_memory_section_response(
+                user_id=user_id, lane=lane, section="working"
+            )
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
+            return {"ok": True}
+
+        if memory_command_key == "show background profile":
+            response_text = build_lane_memory_section_response(
+                user_id=user_id, lane=lane, section="background"
             )
 
             post_message(channel_id, response_text)
