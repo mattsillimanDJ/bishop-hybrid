@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -155,6 +156,80 @@ def _normalize_for_dedupe(content: str) -> str:
     return (content or "").strip().casefold()
 
 
+_GENERIC_CATEGORIES = {"", "note"}
+
+_PREFERENCE_PATTERNS = (
+    re.compile(r"\bprefer(s|red|ring)?\b", re.IGNORECASE),
+    re.compile(r"\bpreferences?\b", re.IGNORECASE),
+    re.compile(r"\bwants?\s+(bishop|you|me)\s+to\b", re.IGNORECASE),
+    re.compile(
+        r"\balways\s+(use|avoid|keep|remember|start|end|respond|reply|check|confirm|prefer|skip|ask)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bnever\s+(use|avoid|skip|assume|guess|reply|respond|suggest|mock|commit|push)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(don'?t|do not)\s+(ever|use|reply|respond|ask|assume|guess|suggest|mock|commit|push)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bshould\s+(always|never)\b", re.IGNORECASE),
+)
+
+_PROFILE_PATTERNS = (
+    re.compile(r"\b(user'?s?|my|matt'?s?|his|her)\s+name\s+is\b", re.IGNORECASE),
+    re.compile(
+        r"\b(is|am)\s+(a|an)\s+"
+        r"(advertising|marketing|software|product|engineer|executive|director|"
+        r"manager|developer|designer|consultant|dj|musician|founder|ceo|cto|"
+        r"vp|head|lead|president|senior|junior|principal|staff|chief|owner|"
+        r"partner|analyst|architect|writer|author|teacher|student|doctor|"
+        r"lawyer|nurse|artist|researcher|scientist|operator)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(is|are)\s+(matt'?s?|my)\s+"
+        r"(wife|husband|son|daughter|partner|mom|dad|father|mother|brother|"
+        r"sister|kid|child|boss|manager|teammate|coworker|colleague|friend|"
+        r"family|spouse)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(my|matt'?s?)\s+"
+        r"(wife|husband|son|daughter|partner|mom|dad|father|mother|brother|"
+        r"sister|kid|child|family|spouse)\s+(is|was|works|lives)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(lives|based|born|grew\s+up)\s+in\b", re.IGNORECASE),
+    re.compile(r"\bworks\s+(at|as|for)\b", re.IGNORECASE),
+)
+
+
+def infer_memory_category(content: str, category: str) -> str:
+    """Upgrade a generic (blank or 'note') category to 'preference' or 'profile'
+    when the content reads like durable operator guidance or stable identity.
+    Any explicit non-generic category is preserved as-is.
+    """
+    current = (category or "").strip().lower()
+    if current not in _GENERIC_CATEGORIES:
+        return category
+
+    text = (content or "").strip()
+    if not text:
+        return "note"
+
+    for pattern in _PREFERENCE_PATTERNS:
+        if pattern.search(text):
+            return "preference"
+
+    for pattern in _PROFILE_PATTERNS:
+        if pattern.search(text):
+            return "profile"
+
+    return "note"
+
+
 def add_memory(
     user_id: str,
     category: str,
@@ -165,6 +240,8 @@ def add_memory(
     init_db()
     conn = get_connection()
     cur = conn.cursor()
+
+    category = infer_memory_category(content, category)
 
     new_norm = _normalize_for_dedupe(content)
 
