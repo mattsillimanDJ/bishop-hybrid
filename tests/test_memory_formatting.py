@@ -427,18 +427,171 @@ def test_build_lane_memory_response_dedupes_and_reranks(monkeypatch):
 
     lines = response.splitlines()
     assert lines[0] == "Here is what I remember in the family lane:"
-    body = lines[1:]
+    assert "Working memory:" in lines
+    assert "Background profile:" not in lines
 
-    assert len(body) == 2
-    assert "dinner at 7" in body[0]
-    assert "book the vet" in body[1]
+    memory_lines = [line for line in lines[1:] if line.startswith("*")]
+    assert len(memory_lines) == 2
+    assert "dinner at 7" in memory_lines[0]
+    assert "book the vet" in memory_lines[1]
     assert "User's name is Matt." not in response
 
     full_response = slack_route.build_lane_memory_response(
         user_id="matt", lane="family", include_boilerplate=True
     )
-    full_body = full_response.splitlines()[1:]
+    full_lines = full_response.splitlines()
+    assert "Working memory:" not in full_lines
+    assert "Background profile:" not in full_lines
+    full_body = full_lines[1:]
     assert len(full_body) == 3
     assert "dinner at 7" in full_body[0]
     assert "book the vet" in full_body[1]
     assert "User's name is Matt." in full_body[2]
+
+
+def test_build_lane_memory_response_splits_working_and_background_sections(monkeypatch):
+    raw = [
+        {
+            "content": "dinner at 7",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "note",
+        },
+        {
+            "content": "Matt's blood type is O+.",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "profile",
+        },
+        {
+            "content": "book the vet",
+            "lane": "family",
+            "visibility": "private",
+            "owner_user_id": "matt",
+            "category": "note",
+        },
+        {
+            "content": "Matt prefers vegan meals.",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "preference",
+        },
+    ]
+
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=20: raw,
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_display_name_for_bishop_user_id",
+        lambda user_id: "Matt",
+    )
+
+    response = slack_route.build_lane_memory_response(user_id="matt", lane="family")
+    lines = response.splitlines()
+
+    assert lines[0] == "Here is what I remember in the family lane:"
+
+    working_index = lines.index("Working memory:")
+    background_index = lines.index("Background profile:")
+    assert working_index < background_index
+
+    working_body = lines[working_index + 1 : background_index]
+    background_body = lines[background_index + 1 :]
+
+    assert [line for line in working_body if line.startswith("*")] == [
+        "* Matt shared in family: dinner at 7",
+        "* Matt private in family: book the vet",
+    ]
+    assert [line for line in background_body if line.startswith("*")] == [
+        "* Matt shared in family: Matt's blood type is O+.",
+        "* Matt shared in family: Matt prefers vegan meals.",
+    ]
+
+
+def test_has_operational_signal_detects_keywords():
+    assert slack_route.has_operational_signal("Spin up a new Bishop workflow")
+    assert slack_route.has_operational_signal("building the terminal integration")
+    assert slack_route.has_operational_signal("working on the pytest suite")
+    assert slack_route.has_operational_signal("Needs a full-file edit")
+    assert slack_route.has_operational_signal("Ready to commit and push")
+    assert slack_route.has_operational_signal("Actionable follow-up for the project")
+    assert slack_route.has_operational_signal("Top priority this cycle")
+
+
+def test_has_operational_signal_uses_word_boundaries():
+    assert not slack_route.has_operational_signal("Matt's blood type is O+.")
+    assert not slack_route.has_operational_signal("Joined the networking team")
+    assert not slack_route.has_operational_signal("Rebuilding the deck this weekend")
+    assert not slack_route.has_operational_signal("Subcommittee meets on Thursday")
+    assert not slack_route.has_operational_signal("")
+
+
+def test_partition_uplifts_profile_preference_with_operational_signal():
+    items = [
+        {"category": "note", "content": "dinner at 7"},
+        {"category": "profile", "content": "Matt's blood type is O+."},
+        {"category": "preference", "content": "Prefers clean Bishop workflow notes."},
+        {"category": "profile", "content": "Working on the terminal project."},
+    ]
+
+    working, background = slack_route.partition_memory_items_by_profile(items)
+
+    assert [i["content"] for i in working] == [
+        "dinner at 7",
+        "Prefers clean Bishop workflow notes.",
+        "Working on the terminal project.",
+    ]
+    assert [i["content"] for i in background] == [
+        "Matt's blood type is O+.",
+    ]
+
+
+def test_build_lane_memory_response_uplifts_operational_profile_items_to_working(monkeypatch):
+    raw = [
+        {
+            "content": "Matt's blood type is O+.",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "profile",
+        },
+        {
+            "content": "Prefers clean Bishop workflow notes.",
+            "lane": "family",
+            "visibility": "shared",
+            "owner_user_id": "matt",
+            "category": "preference",
+        },
+    ]
+
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=20: raw,
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_display_name_for_bishop_user_id",
+        lambda user_id: "Matt",
+    )
+
+    response = slack_route.build_lane_memory_response(user_id="matt", lane="family")
+    lines = response.splitlines()
+
+    assert "Working memory:" in lines
+    assert "Background profile:" in lines
+
+    working_index = lines.index("Working memory:")
+    background_index = lines.index("Background profile:")
+    working_body = lines[working_index + 1 : background_index]
+    background_body = lines[background_index + 1 :]
+
+    assert any("Prefers clean Bishop workflow notes." in line for line in working_body)
+    assert any("Matt's blood type is O+." in line for line in background_body)
+    assert not any("Matt's blood type is O+." in line for line in working_body)

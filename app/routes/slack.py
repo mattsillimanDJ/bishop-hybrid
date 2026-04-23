@@ -781,6 +781,32 @@ def clean_string(value: object, fallback: str = "") -> str:
 
 LOW_SIGNAL_MEMORY_CATEGORIES = frozenset({"profile", "preference"})
 
+OPERATIONAL_SIGNAL_KEYWORDS = (
+    "bishop",
+    "building",
+    "working",
+    "workflow",
+    "terminal",
+    "full-file",
+    "pytest",
+    "commit",
+    "push",
+    "actionable",
+    "project",
+    "priority",
+)
+
+_OPERATIONAL_SIGNAL_PATTERN = re.compile(
+    r"\b(?:" + "|".join(re.escape(keyword) for keyword in OPERATIONAL_SIGNAL_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def has_operational_signal(content: str) -> bool:
+    if not content:
+        return False
+    return bool(_OPERATIONAL_SIGNAL_PATTERN.search(content))
+
 BOILERPLATE_MEMORY_CONTENTS = frozenset(
     {
         "user's name is matt.",
@@ -893,6 +919,22 @@ def format_memory_lines(items: list[dict]) -> list[str]:
     return [format_memory_line(item) for item in items]
 
 
+def partition_memory_items_by_profile(items: list[dict]) -> tuple[list[dict], list[dict]]:
+    working: list[dict] = []
+    background: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        category = clean_string(item.get("category")).casefold()
+        if category not in LOW_SIGNAL_MEMORY_CATEGORIES:
+            working.append(item)
+        elif has_operational_signal(clean_string(item.get("content"))):
+            working.append(item)
+        else:
+            background.append(item)
+    return working, background
+
+
 def was_memory_deleted(result: object) -> bool:
     return get_deleted_count(result) > 0
 
@@ -913,11 +955,23 @@ def build_lane_memory_response(
         suppressed = suppress_boilerplate_memory_items(memories)
         if suppressed or not memories:
             memories = suppressed
-    if memories:
-        return f"Here is what I remember in the {lane} lane:\n" + "\n".join(
-            format_memory_lines(memories)
-        )
-    return f"I do not have any saved memory yet in the {lane} lane."
+    if not memories:
+        return f"I do not have any saved memory yet in the {lane} lane."
+
+    header = f"Here is what I remember in the {lane} lane:"
+
+    if include_boilerplate:
+        return header + "\n" + "\n".join(format_memory_lines(memories))
+
+    working, background = partition_memory_items_by_profile(memories)
+    sections: list[str] = [header]
+    if working:
+        sections.append("Working memory:")
+        sections.extend(format_memory_lines(working))
+    if background:
+        sections.append("Background profile:")
+        sections.extend(format_memory_lines(background))
+    return "\n".join(sections)
 
 
 @router.post("/slack/events")
