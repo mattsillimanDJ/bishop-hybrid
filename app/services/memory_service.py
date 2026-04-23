@@ -151,6 +151,10 @@ def get_memories(
     return [dict(row) for row in rows]
 
 
+def _normalize_for_dedupe(content: str) -> str:
+    return (content or "").strip().casefold()
+
+
 def add_memory(
     user_id: str,
     category: str,
@@ -161,6 +165,59 @@ def add_memory(
     init_db()
     conn = get_connection()
     cur = conn.cursor()
+
+    new_norm = _normalize_for_dedupe(content)
+
+    superseded_ids: List[int] = []
+    if new_norm:
+        cur.execute(
+            """
+            SELECT id, user_id, owner_user_id, category, content, lane, visibility
+            FROM memory_entries
+            WHERE owner_user_id = ? AND lane = ? AND visibility = ?
+            """,
+            (user_id, lane, visibility),
+        )
+        existing_rows = cur.fetchall()
+
+        for row in existing_rows:
+            existing_norm = _normalize_for_dedupe(row["content"])
+            if not existing_norm:
+                continue
+            if existing_norm == new_norm or (
+                len(new_norm) < len(existing_norm)
+                and (
+                    existing_norm.startswith(new_norm)
+                    or existing_norm.endswith(new_norm)
+                )
+            ):
+                conn.close()
+                return {
+                    "id": row["id"],
+                    "user_id": row["user_id"],
+                    "owner_user_id": row["owner_user_id"],
+                    "category": row["category"],
+                    "content": row["content"],
+                    "lane": row["lane"],
+                    "visibility": row["visibility"],
+                }
+
+        for row in existing_rows:
+            existing_norm = _normalize_for_dedupe(row["content"])
+            if not existing_norm:
+                continue
+            if len(existing_norm) < len(new_norm) and (
+                new_norm.startswith(existing_norm)
+                or new_norm.endswith(existing_norm)
+            ):
+                superseded_ids.append(row["id"])
+
+        if superseded_ids:
+            placeholders = ",".join("?" for _ in superseded_ids)
+            cur.execute(
+                f"DELETE FROM memory_entries WHERE id IN ({placeholders})",
+                superseded_ids,
+            )
 
     cur.execute(
         """
@@ -270,4 +327,94 @@ def delete_memory_by_query(
         "lane": row["lane"],
         "visibility": row["visibility"],
         "owner_user_id": row["owner_user_id"],
+    }
+
+
+def cleanup_duplicate_memories(dry_run: bool = False) -> Dict:
+    init_db()
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT id, owner_user_id, lane, visibility, content
+        FROM memory_entries
+        ORDER BY id ASC
+        """
+    )
+    rows = cur.fetchall()
+
+    groups: Dict[tuple, List[Dict]] = {}
+    for row in rows:
+        key = (row["owner_user_id"], row["lane"], row["visibility"])
+        groups.setdefault(key, []).append(
+            {
+                "id": row["id"],
+                "content": row["content"],
+                "norm": _normalize_for_dedupe(row["content"]),
+            }
+        )
+
+    deleted_ids: List[int] = []
+    deleted_details: List[Dict] = []
+
+    for key, members in groups.items():
+        to_delete: set = set()
+
+        by_norm: Dict[str, List[Dict]] = {}
+        for member in members:
+            if not member["norm"]:
+                continue
+            by_norm.setdefault(member["norm"], []).append(member)
+
+        for _norm, siblings in by_norm.items():
+            if len(siblings) < 2:
+                continue
+            siblings_sorted = sorted(siblings, key=lambda m: m["id"])
+            for loser in siblings_sorted[1:]:
+                to_delete.add(loser["id"])
+
+        survivors = [m for m in members if m["id"] not in to_delete and m["norm"]]
+
+        for candidate in survivors:
+            c_norm = candidate["norm"]
+            for other in survivors:
+                if other["id"] == candidate["id"]:
+                    continue
+                o_norm = other["norm"]
+                if len(c_norm) < len(o_norm) and (
+                    o_norm.startswith(c_norm) or o_norm.endswith(c_norm)
+                ):
+                    to_delete.add(candidate["id"])
+                    break
+
+        for member in members:
+            if member["id"] in to_delete:
+                deleted_ids.append(member["id"])
+                deleted_details.append(
+                    {
+                        "id": member["id"],
+                        "owner_user_id": key[0],
+                        "lane": key[1],
+                        "visibility": key[2],
+                        "content": member["content"],
+                    }
+                )
+
+    if deleted_ids and not dry_run:
+        placeholders = ",".join("?" for _ in deleted_ids)
+        cur.execute(
+            f"DELETE FROM memory_entries WHERE id IN ({placeholders})",
+            deleted_ids,
+        )
+        conn.commit()
+
+    conn.close()
+
+    return {
+        "scanned": len(rows),
+        "deleted": len(deleted_ids),
+        "deleted_ids": deleted_ids,
+        "deleted_details": deleted_details,
+        "dry_run": dry_run,
     }

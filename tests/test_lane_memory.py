@@ -3,6 +3,7 @@ import pytest
 from app.services import memory_service
 from app.services.memory_service import (
     add_memory,
+    cleanup_duplicate_memories,
     delete_memory_by_query,
     get_memories,
     search_memories,
@@ -259,3 +260,215 @@ def test_memory_records_include_owner_user_id():
     assert len(memories) == 1
     assert memories[0]["owner_user_id"] == user_id
     assert memories[0]["content"] == "owner field memory"
+
+
+def test_exact_duplicate_in_same_scope_is_not_stored_twice():
+    user_id = "dedupe_exact"
+
+    add_memory(user_id, "note", "remember the milk", lane="work", visibility="private")
+    add_memory(user_id, "note", "remember the milk", lane="work", visibility="private")
+
+    memories = get_memories(user_id=user_id, lane="work")
+    matches = [m for m in memories if m["content"] == "remember the milk"]
+    assert len(matches) == 1
+
+
+def test_exact_duplicate_is_case_and_whitespace_insensitive():
+    user_id = "dedupe_case_ws"
+
+    add_memory(user_id, "note", "Remember The Milk", lane="work", visibility="private")
+    add_memory(user_id, "note", "  remember the milk  ", lane="work", visibility="private")
+
+    memories = get_memories(user_id=user_id, lane="work")
+    assert len(memories) == 1
+    assert memories[0]["content"] == "Remember The Milk"
+
+
+def test_new_shorter_prefix_is_not_stored_when_longer_exists():
+    user_id = "dedupe_prefix_skip"
+
+    add_memory(user_id, "note", "buy groceries for the week", lane="work", visibility="private")
+    add_memory(user_id, "note", "buy groceries", lane="work", visibility="private")
+
+    memories = get_memories(user_id=user_id, lane="work")
+    contents = [m["content"] for m in memories]
+    assert "buy groceries for the week" in contents
+    assert "buy groceries" not in contents
+    assert len(memories) == 1
+
+
+def test_new_shorter_suffix_is_not_stored_when_longer_exists():
+    user_id = "dedupe_suffix_skip"
+
+    add_memory(user_id, "note", "please buy groceries", lane="work", visibility="private")
+    add_memory(user_id, "note", "buy groceries", lane="work", visibility="private")
+
+    memories = get_memories(user_id=user_id, lane="work")
+    contents = [m["content"] for m in memories]
+    assert "please buy groceries" in contents
+    assert "buy groceries" not in contents
+    assert len(memories) == 1
+
+
+def test_new_longer_supersedes_existing_shorter_prefix():
+    user_id = "dedupe_prefix_supersede"
+
+    add_memory(user_id, "note", "buy groceries", lane="work", visibility="private")
+    add_memory(user_id, "note", "buy groceries for the week", lane="work", visibility="private")
+
+    memories = get_memories(user_id=user_id, lane="work")
+    contents = [m["content"] for m in memories]
+    assert contents == ["buy groceries for the week"]
+
+
+def test_new_longer_supersedes_existing_shorter_suffix():
+    user_id = "dedupe_suffix_supersede"
+
+    add_memory(user_id, "note", "buy groceries", lane="work", visibility="private")
+    add_memory(user_id, "note", "please buy groceries", lane="work", visibility="private")
+
+    memories = get_memories(user_id=user_id, lane="work")
+    contents = [m["content"] for m in memories]
+    assert contents == ["please buy groceries"]
+
+
+def test_dedupe_does_not_cross_lanes():
+    user_id = "dedupe_cross_lane"
+
+    add_memory(user_id, "note", "shared phrase", lane="work", visibility="private")
+    add_memory(user_id, "note", "shared phrase", lane="dj", visibility="private")
+
+    work_memories = get_memories(user_id=user_id, lane="work")
+    dj_memories = get_memories(user_id=user_id, lane="dj")
+
+    assert any(m["content"] == "shared phrase" for m in work_memories)
+    assert any(m["content"] == "shared phrase" for m in dj_memories)
+
+
+def test_dedupe_does_not_cross_visibility():
+    user_id = "dedupe_cross_visibility"
+
+    add_memory(user_id, "note", "same text different visibility", lane="family", visibility="private")
+    add_memory(user_id, "note", "same text different visibility", lane="family", visibility="shared")
+
+    memories = get_memories(user_id=user_id, lane="family")
+    matches = [m for m in memories if m["content"] == "same text different visibility"]
+    assert len(matches) == 2
+    visibilities = {m["visibility"] for m in matches}
+    assert visibilities == {"private", "shared"}
+
+
+def test_dedupe_does_not_cross_owners():
+    matt_user_id = "dedupe_owner_matt"
+    carmen_user_id = "dedupe_owner_carmen"
+
+    add_memory(matt_user_id, "note", "same owner-scoped text", lane="family", visibility="private")
+    add_memory(carmen_user_id, "note", "same owner-scoped text", lane="family", visibility="private")
+
+    matt_memories = get_memories(user_id=matt_user_id, lane="family")
+    carmen_memories = get_memories(user_id=carmen_user_id, lane="family")
+
+    assert any(m["content"] == "same owner-scoped text" for m in matt_memories)
+    assert any(m["content"] == "same owner-scoped text" for m in carmen_memories)
+
+
+def _raw_insert(conn, user_id, content, lane, visibility):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO memory_entries
+        (user_id, owner_user_id, category, content, lane, visibility)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (user_id, user_id, "note", content, lane, visibility),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def test_cleanup_removes_exact_and_truncated_duplicates_in_scope():
+    from app.services.memory_service import init_db, get_connection
+
+    init_db()
+    conn = get_connection()
+    user_id = "cleanup_user"
+
+    longer_id = _raw_insert(
+        conn, user_id, "Matt values exact terminal instructions and full-file replacements for coding work",
+        "matt", "private",
+    )
+    shorter_id = _raw_insert(
+        conn, user_id, "Matt values exact terminal instructions and full-file",
+        "matt", "private",
+    )
+    exact_first_id = _raw_insert(
+        conn, user_id, "repeat me", "matt", "private",
+    )
+    exact_second_id = _raw_insert(
+        conn, user_id, "repeat me", "matt", "private",
+    )
+    other_lane_id = _raw_insert(
+        conn, user_id, "Matt values exact terminal instructions and full-file",
+        "work", "private",
+    )
+    conn.close()
+
+    result = cleanup_duplicate_memories()
+
+    assert result["dry_run"] is False
+    assert shorter_id in result["deleted_ids"]
+    assert exact_second_id in result["deleted_ids"]
+    assert longer_id not in result["deleted_ids"]
+    assert exact_first_id not in result["deleted_ids"]
+    assert other_lane_id not in result["deleted_ids"]
+
+    remaining = get_memories(user_id=user_id, lane="matt")
+    contents = [m["content"] for m in remaining]
+    assert "Matt values exact terminal instructions and full-file replacements for coding work" in contents
+    assert "repeat me" in contents
+    assert "Matt values exact terminal instructions and full-file" not in contents
+    assert len([c for c in contents if c == "repeat me"]) == 1
+
+    work_memories = get_memories(user_id=user_id, lane="work")
+    assert any(
+        m["content"] == "Matt values exact terminal instructions and full-file"
+        for m in work_memories
+    )
+
+
+def test_cleanup_dry_run_does_not_delete():
+    from app.services.memory_service import init_db, get_connection
+
+    init_db()
+    conn = get_connection()
+    user_id = "cleanup_dry_run_user"
+    longer_id = _raw_insert(conn, user_id, "the full sentence here", "matt", "private")
+    shorter_id = _raw_insert(conn, user_id, "the full sentence", "matt", "private")
+    conn.close()
+
+    result = cleanup_duplicate_memories(dry_run=True)
+
+    assert result["dry_run"] is True
+    assert shorter_id in result["deleted_ids"]
+    assert longer_id not in result["deleted_ids"]
+
+    remaining = get_memories(user_id=user_id, lane="matt")
+    contents = [m["content"] for m in remaining]
+    assert "the full sentence here" in contents
+    assert "the full sentence" in contents
+
+
+def test_cleanup_respects_scope_boundaries():
+    from app.services.memory_service import init_db, get_connection
+
+    init_db()
+    conn = get_connection()
+    _raw_insert(conn, "user_a", "same content", "family", "private")
+    _raw_insert(conn, "user_b", "same content", "family", "private")
+    _raw_insert(conn, "user_a", "same content", "family", "shared")
+    _raw_insert(conn, "user_a", "same content", "work", "private")
+    conn.close()
+
+    result = cleanup_duplicate_memories()
+
+    assert result["deleted"] == 0

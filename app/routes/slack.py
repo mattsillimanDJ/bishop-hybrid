@@ -1056,14 +1056,16 @@ async def slack_events(request: Request):
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
-        if lowered in {"what do you remember", "show memory"}:
+        memory_command_key = lowered.rstrip(" \t?!.,;:")
+
+        if memory_command_key in {"what do you remember", "show memory"}:
             response_text = build_lane_memory_response(user_id=user_id, lane=lane)
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
             return {"ok": True}
 
-        if lowered in {"show all memory", "what do you remember in full"}:
+        if memory_command_key in {"show all memory", "what do you remember in full"}:
             response_text = build_lane_memory_response(
                 user_id=user_id, lane=lane, include_boilerplate=True
             )
