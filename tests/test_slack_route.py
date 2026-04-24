@@ -198,6 +198,9 @@ def test_help_command(monkeypatch):
     assert "remove completed task" in captured["text"]
     assert "add task" in captured["text"]
     assert "remind me" in captured["text"]
+    assert "show working memory" in captured["text"]
+    assert "show background profile" in captured["text"]
+    assert "forget exact memory ..." in captured["text"]
 
 
 def test_show_lane_command(monkeypatch):
