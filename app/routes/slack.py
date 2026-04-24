@@ -641,6 +641,38 @@ def get_partitioned_lane_memories(user_id: str, lane: str) -> tuple[list[dict], 
     return partition_memory_items_by_profile(memories)
 
 
+def build_attention_response(user_id: str, lane: str) -> str:
+    pending_tasks = get_tasks_for_lane(
+        user_id=user_id, lane=lane, status="pending", limit=10
+    )
+    working_memory, _ = get_partitioned_lane_memories(user_id, lane)
+
+    if not pending_tasks and not working_memory:
+        return (
+            f"You're clear in the {lane} lane. "
+            "No pending tasks or working memory items."
+        )
+
+    sections = [f"What needs your attention in the {lane} lane:"]
+
+    if pending_tasks:
+        sections.append("")
+        sections.append(
+            format_tasks_for_slack(
+                pending_tasks,
+                title="Pending tasks:",
+                empty_text="No pending tasks right now.",
+            )
+        )
+
+    if working_memory:
+        sections.append("")
+        sections.append("Working memory:")
+        sections.extend(format_memory_lines(working_memory))
+
+    return "\n".join(sections)
+
+
 def build_status_text(user_id: str, lane: str) -> tuple[str, str]:
     current_mode = get_mode(user_id)
     resolution = get_provider_resolution()
@@ -1150,6 +1182,13 @@ async def slack_events(request: Request):
             response_text = build_lane_memory_section_response(
                 user_id=user_id, lane=lane, section="background"
             )
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
+            return {"ok": True}
+
+        if memory_command_key == "what needs my attention":
+            response_text = build_attention_response(user_id=user_id, lane=lane)
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
