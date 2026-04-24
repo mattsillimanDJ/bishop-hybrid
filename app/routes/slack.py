@@ -641,6 +641,18 @@ def get_partitioned_lane_memories(user_id: str, lane: str) -> tuple[list[dict], 
     return partition_memory_items_by_profile(memories)
 
 
+def _format_attention_tasks(items: list[dict]) -> str:
+    lines = ["Pending tasks:"]
+    for item in items:
+        task_text = (item.get("task_text") or "").strip()
+        if not task_text:
+            continue
+        if len(task_text) > 120:
+            task_text = task_text[:117] + "..."
+        lines.append(f"* {task_text}")
+    return "\n".join(lines)
+
+
 def build_attention_response(user_id: str, lane: str) -> str:
     pending_tasks = get_tasks_for_lane(
         user_id=user_id, lane=lane, status="pending", limit=10
@@ -657,13 +669,7 @@ def build_attention_response(user_id: str, lane: str) -> str:
 
     if pending_tasks:
         sections.append("")
-        sections.append(
-            format_tasks_for_slack(
-                pending_tasks,
-                title="Pending tasks:",
-                empty_text="No pending tasks right now.",
-            )
-        )
+        sections.append(_format_attention_tasks(pending_tasks))
 
     if working_memory:
         sections.append("")

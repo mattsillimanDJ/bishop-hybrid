@@ -100,8 +100,10 @@ def test_attention_command_routes_and_includes_tasks_and_memory(monkeypatch):
 
     assert text.startswith("What needs your attention in the matt lane:")
     assert "Pending tasks:" in text
-    assert "finish the attention command" in text
-    assert "run the tests" in text
+    assert "* finish the attention command" in text
+    assert "* run the tests" in text
+    assert "Commitment:" not in text
+    assert "2026-04-24" not in text
     assert "Working memory:" in text
     assert "ship the attention dashboard" in text
     assert "check PR #42" in text
@@ -207,7 +209,9 @@ def test_attention_command_omits_memory_section_when_only_tasks(monkeypatch):
 
     assert "What needs your attention in the matt lane:" in text
     assert "Pending tasks:" in text
-    assert "only task" in text
+    assert "* only task" in text
+    assert "Commitment:" not in text
+    assert "2026-04-24" not in text
     assert "Working memory:" not in text
 
 
@@ -288,3 +292,29 @@ def test_attention_command_is_lane_scoped(monkeypatch):
     assert task_calls == ["dj"]
     assert memory_calls == ["dj"]
     assert "in the dj lane" in captured["text"]
+
+
+def test_attention_pending_tasks_render_as_plain_bullets(monkeypatch):
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, lane=None, status="pending", limit=10: [
+            {
+                "created_at": "2026-04-24T09:00:00+00:00",
+                "task_text": "follow up on Bishop attention dashboard",
+                "assistant_commitment": "On it.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        slack_route, "get_memories", lambda user_id, lane=None, limit=20: []
+    )
+
+    response = slack_route.build_attention_response(user_id="matt", lane="matt")
+
+    assert response == (
+        "What needs your attention in the matt lane:\n"
+        "\n"
+        "Pending tasks:\n"
+        "* follow up on Bishop attention dashboard"
+    )
