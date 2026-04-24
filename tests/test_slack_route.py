@@ -185,9 +185,14 @@ def test_help_command(monkeypatch):
     response = client.post("/slack/events", json=make_event("help", event_id="evt-help"))
 
     assert response.status_code == 200
+    assert "Memory:" in captured["text"]
+    assert "Tasks:" in captured["text"]
+    assert "Modes:" in captured["text"]
+    assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
     assert "show tasks" in captured["text"]
+    assert "show pending" in captured["text"]
     assert "show done" in captured["text"]
     assert "show completed" in captured["text"]
     assert "show all" in captured["text"]
@@ -201,6 +206,7 @@ def test_help_command(monkeypatch):
     assert "show working memory" in captured["text"]
     assert "show background profile" in captured["text"]
     assert "forget exact memory ..." in captured["text"]
+    assert "status" in captured["text"]
 
 
 def test_show_lane_command(monkeypatch):
