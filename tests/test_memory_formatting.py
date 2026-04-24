@@ -27,6 +27,68 @@ def test_format_memory_line_without_owner():
     assert line == "* shared in family: dinner at 7"
 
 
+def test_format_memory_line_with_profile_category_adds_label():
+    item = {
+        "lane": "family",
+        "visibility": "shared",
+        "content": "Matt is actively building Bishop as a personal operating system.",
+        "owner_display_name": "Matt",
+        "category": "profile",
+    }
+
+    line = slack_route.format_memory_line(item)
+
+    assert line == (
+        "* Matt shared in family: [Profile] "
+        "Matt is actively building Bishop as a personal operating system."
+    )
+
+
+def test_format_memory_line_with_preference_category_adds_label():
+    item = {
+        "lane": "family",
+        "visibility": "shared",
+        "content": "Matt prefers exact terminal-first instructions.",
+        "owner_display_name": "Matt",
+        "category": "preference",
+    }
+
+    line = slack_route.format_memory_line(item)
+
+    assert line == (
+        "* Matt shared in family: [Preference] "
+        "Matt prefers exact terminal-first instructions."
+    )
+
+
+def test_format_memory_line_with_note_category_has_no_label():
+    item = {
+        "lane": "family",
+        "visibility": "shared",
+        "content": "dinner at 7",
+        "owner_display_name": "Matt",
+        "category": "note",
+    }
+
+    line = slack_route.format_memory_line(item)
+
+    assert line == "* Matt shared in family: dinner at 7"
+
+
+def test_format_memory_line_with_empty_category_has_no_label():
+    item = {
+        "lane": "family",
+        "visibility": "shared",
+        "content": "dinner at 7",
+        "owner_display_name": "Matt",
+        "category": "",
+    }
+
+    line = slack_route.format_memory_line(item)
+
+    assert line == "* Matt shared in family: dinner at 7"
+
+
 def test_format_memory_lines_multiple():
     items = [
         {
@@ -630,8 +692,8 @@ def test_build_lane_memory_response_splits_working_and_background_sections(monke
         "* Matt private in family: book the vet",
     ]
     assert [line for line in background_body if line.startswith("*")] == [
-        "* Matt shared in family: Matt's blood type is O+.",
-        "* Matt shared in family: Matt prefers vegan meals.",
+        "* Matt shared in family: [Profile] Matt's blood type is O+.",
+        "* Matt shared in family: [Preference] Matt prefers vegan meals.",
     ]
 
 

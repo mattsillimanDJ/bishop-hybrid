@@ -942,6 +942,13 @@ def get_safe_memory_items(result: object, fallback_lane: str) -> list[dict]:
     return normalized_items
 
 
+def format_memory_category_label(category: str) -> str:
+    normalized = clean_string(category).casefold()
+    if not normalized or normalized == "note":
+        return ""
+    return f"[{normalized.title()}] "
+
+
 def format_memory_line(item: dict) -> str:
     if not isinstance(item, dict):
         return "* unknown in unknown:"
@@ -950,11 +957,13 @@ def format_memory_line(item: dict) -> str:
     visibility = clean_string(item.get("visibility"), "unknown")
     lane = clean_string(item.get("lane"), "unknown")
     content = clean_string(item.get("content"))
+    label = format_memory_category_label(clean_string(item.get("category")))
+    display = f"{label}{content}"
 
     if owner_display_name:
-        return f"* {owner_display_name} {visibility} in {lane}: {content}"
+        return f"* {owner_display_name} {visibility} in {lane}: {display}"
 
-    return f"* {visibility} in {lane}: {content}"
+    return f"* {visibility} in {lane}: {display}"
 
 
 def format_memory_lines(items: list[dict]) -> list[str]:
