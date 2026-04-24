@@ -631,12 +631,23 @@ def add_task_for_lane(
         )
 
 
+def get_partitioned_lane_memories(user_id: str, lane: str) -> tuple[list[dict], list[dict]]:
+    raw_memories = get_memories(user_id=user_id, lane=lane, limit=20)
+    memories = get_safe_memory_items(raw_memories, lane)
+    memories = rerank_memory_items(dedupe_memory_items(memories))
+    suppressed = suppress_boilerplate_memory_items(memories)
+    if suppressed or not memories:
+        memories = suppressed
+    return partition_memory_items_by_profile(memories)
+
+
 def build_status_text(user_id: str, lane: str) -> tuple[str, str]:
     current_mode = get_mode(user_id)
     resolution = get_provider_resolution()
     effective_provider = resolution["effective_provider"]
     active_model = get_provider_model(effective_provider) or "not set"
     pending_tasks = get_tasks_for_lane(user_id=user_id, lane=lane, status="pending", limit=10)
+    working_memory, background_profile = get_partitioned_lane_memories(user_id, lane)
 
     openai_ok, openai_message = validate_provider_config("openai")
     claude_ok, claude_message = validate_provider_config("claude")
@@ -652,7 +663,9 @@ def build_status_text(user_id: str, lane: str) -> tuple[str, str]:
         f"*Railway default provider:* {resolution['default_provider']}\n"
         f"*Default provider status:* {'OK' if resolution['default_ok'] else resolution['default_message']}\n"
         f"*Resolution source:* {resolution['effective_from']}\n"
-        f"*Pending tasks:* {len(pending_tasks)}\n\n"
+        f"*Pending tasks:* {len(pending_tasks)}\n"
+        f"*Working memory:* {len(working_memory)}\n"
+        f"*Background profile:* {len(background_profile)}\n\n"
         "*Provider checks:*\n"
         f"* OpenAI: {'OK' if openai_ok else 'Missing'} , {openai_message}\n"
         f"* Claude: {'OK' if claude_ok else 'Missing'} , {claude_message}"
