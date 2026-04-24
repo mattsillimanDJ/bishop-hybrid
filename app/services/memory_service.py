@@ -206,6 +206,31 @@ _PROFILE_PATTERNS = (
 )
 
 
+_BASIC_IDENTITY_CLUTTER = frozenset(
+    {
+        "my name is matt",
+        "user's name is matt",
+        "users name is matt",
+        "the user's name is matt",
+        "the users name is matt",
+        "matt is the user",
+        "user is matt",
+    }
+)
+
+
+def _is_basic_identity_clutter(content: str) -> bool:
+    """Return True only for a small, exact allowlist of bland identity phrases
+    that Bishop already knows and should not re-save as memory.
+    """
+    text = (content or "").strip().casefold()
+    if not text:
+        return False
+    text = text.rstrip(".,!?;:").strip()
+    text = re.sub(r"\s+", " ", text)
+    return text in _BASIC_IDENTITY_CLUTTER
+
+
 def infer_memory_category(content: str, category: str) -> str:
     """Upgrade a generic (blank or 'note') category to 'preference' or 'profile'
     when the content reads like durable operator guidance or stable identity.
@@ -237,6 +262,13 @@ def add_memory(
     lane: str = "matt",
     visibility: str = "private",
 ) -> Dict:
+    if _is_basic_identity_clutter(content):
+        return {
+            "skipped": True,
+            "reason": "basic_identity",
+            "content": content,
+        }
+
     init_db()
     conn = get_connection()
     cur = conn.cursor()

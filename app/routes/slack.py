@@ -1157,14 +1157,18 @@ async def slack_events(request: Request):
             lane_default_visibility=default_visibility,
         )
         if remembered_text:
-            add_memory(
+            result = add_memory(
                 user_id=user_id,
                 category="note",
                 content=remembered_text,
                 lane=lane,
                 visibility=memory_visibility,
             )
-            if is_explicit_visibility:
+            if isinstance(result, dict) and result.get("skipped"):
+                response_text = (
+                    "I already know that basic identity detail, so I won't add it again."
+                )
+            elif is_explicit_visibility:
                 response_text = (
                     f"Got it. I'll remember this as {memory_visibility} in the {lane} lane: "
                     f"{remembered_text}"
