@@ -343,6 +343,7 @@ def help_text() -> str:
         "* mode work\n"
         "* mode personal\n"
         "* mode website\n"
+        "* mode cmo\n"
         "* show mode\n\n"
         "System:\n"
         "* show lane\n"
@@ -1479,7 +1480,14 @@ async def slack_events(request: Request):
 
             if requested_mode in VALID_MODES:
                 set_mode(user_id, requested_mode)
-                response_text = f"Mode set to {requested_mode}."
+                if requested_mode == "cmo":
+                    response_text = (
+                        "CMO mode active.\n"
+                        "I’ll think in terms of audience, positioning, offer, "
+                        "channel, creative, budget, and measurable next action."
+                    )
+                else:
+                    response_text = f"Mode set to {requested_mode}."
             else:
                 response_text = (
                     "Unknown mode. Available modes: "

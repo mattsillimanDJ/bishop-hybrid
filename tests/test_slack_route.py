@@ -188,6 +188,7 @@ def test_help_command(monkeypatch):
     assert "Memory:" in captured["text"]
     assert "Tasks:" in captured["text"]
     assert "Modes:" in captured["text"]
+    assert "* mode cmo" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -207,6 +208,84 @@ def test_help_command(monkeypatch):
     assert "show background profile" in captured["text"]
     assert "forget exact memory ..." in captured["text"]
     assert "status" in captured["text"]
+
+
+def test_mode_cmo_returns_strategic_acknowledgement(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_mode_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_mode(user_id, mode):
+        set_mode_calls.append((user_id, mode))
+        return mode
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_mode", fake_set_mode)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("mode cmo", event_id="evt-mode-cmo")
+    )
+
+    assert response.status_code == 200
+    assert set_mode_calls == [("U123", "cmo")]
+    assert captured["text"] == (
+        "CMO mode active.\n"
+        "I’ll think in terms of audience, positioning, offer, channel, "
+        "creative, budget, and measurable next action."
+    )
+
+
+def test_mode_default_still_returns_plain_acknowledgement(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_mode", lambda user_id, mode: mode)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("mode default", event_id="evt-mode-default")
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Mode set to default."
+
+
+def test_unknown_mode_listing_includes_cmo(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("mode bogus", event_id="evt-mode-bogus")
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+    assert text.startswith("Unknown mode. Available modes:")
+    assert "cmo" in text
+    assert "default" in text
+    assert "work" in text
+    assert "personal" in text
+    assert "website" in text
 
 
 def test_show_lane_command(monkeypatch):
