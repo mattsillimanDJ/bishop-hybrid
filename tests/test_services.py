@@ -43,6 +43,83 @@ def test_generate_reply_uses_effective_provider(monkeypatch):
     assert "Tell me about Ben" in captured["user_prompt"]
 
 
+def test_get_mode_system_prompt_cmo_contains_lens_and_keywords():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    assert "CMO mode" in prompt
+    for keyword in [
+        "audience",
+        "positioning",
+        "offer",
+        "channel",
+        "creative",
+        "budget",
+        "measurable next action",
+    ]:
+        assert keyword in prompt, f"missing CMO lens keyword: {keyword}"
+
+    assert "Do not over-format unless the user asks for a plan." in prompt
+
+
+def test_get_mode_system_prompt_default_does_not_contain_cmo_lens():
+    prompt = chat_service.get_mode_system_prompt("default")
+
+    assert "CMO mode" not in prompt
+    assert "audience, positioning, offer" not in prompt
+
+
+def test_generate_reply_in_cmo_mode_passes_cmo_lens_to_model(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "cmo")
+    monkeypatch.setattr(
+        chat_service, "generate_memory_context", lambda user_id, message: "No relevant memory found."
+    )
+    monkeypatch.setattr(chat_service, "generate_task_context", lambda user_id: "No pending tasks.")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    captured = {}
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured["system_prompt"] = system_prompt
+        captured["user_prompt"] = user_prompt
+        return "strategic reply"
+
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    result = chat_service.generate_reply(
+        user_id="U123",
+        message="How should we launch the new event series?",
+    )
+
+    assert result == "strategic reply"
+    assert "CMO mode" in captured["system_prompt"]
+    assert "audience" in captured["system_prompt"]
+    assert "positioning" in captured["system_prompt"]
+    assert "measurable next action" in captured["system_prompt"]
+    assert "How should we launch the new event series?" in captured["user_prompt"]
+
+
+def test_generate_reply_in_default_mode_does_not_include_cmo_lens(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(
+        chat_service, "generate_memory_context", lambda user_id, message: "No relevant memory found."
+    )
+    monkeypatch.setattr(chat_service, "generate_task_context", lambda user_id: "No pending tasks.")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    captured = {}
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured["system_prompt"] = system_prompt
+        return "default reply"
+
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    chat_service.generate_reply(user_id="U123", message="What's a good dinner idea?")
+
+    assert "CMO mode" not in captured["system_prompt"]
+    assert "audience, positioning, offer" not in captured["system_prompt"]
+
+
 def test_looks_like_explicit_task_command():
     assert task_service.looks_like_explicit_task_command("add task review the deck") is True
     assert task_service.looks_like_explicit_task_command("save task call John") is True

@@ -137,6 +137,18 @@ def get_mode_system_prompt(mode: str) -> str:
             + "Help with life, family, relationships, health habits, and personal decisions in a calm, practical way. "
             + "Be supportive without sounding corny or overly emotional."
         ),
+        "cmo": (
+            base
+            + " "
+            + "You are in CMO mode. "
+            + "Think like a sharp, practical marketing leader. "
+            + "For business, brand, content, campaign, production, social, or growth questions, "
+            + "frame your answer through audience, positioning, offer, channel, creative, budget, "
+            + "and measurable next action. "
+            + "Be direct, strategic, and useful. "
+            + "Do not over-format unless the user asks for a plan. "
+            + "For simple questions, stay concise."
+        ),
         "website": (
             base
             + " "
