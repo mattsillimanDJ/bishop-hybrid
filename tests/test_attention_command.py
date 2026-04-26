@@ -98,16 +98,18 @@ def test_attention_command_routes_and_includes_tasks_and_memory(monkeypatch):
     assert response.status_code == 200
     text = captured["text"]
 
-    assert text.startswith("What needs your attention in the matt lane:")
-    assert "Pending tasks:" in text
-    assert "* finish the attention command" in text
-    assert "* run the tests" in text
+    assert text.startswith("Here’s what needs your attention in the matt lane:")
+    assert "Pending tasks\n" in text
+    assert "Pending tasks:" not in text
+    assert "• finish the attention command" in text
+    assert "• run the tests" in text
     assert "Commitment:" not in text
     assert "2026-04-24" not in text
-    assert "Operational context:" in text
+    assert "Operational context\n" in text
+    assert "Operational context:" not in text
     assert "Working memory:" not in text
-    assert "ship the attention dashboard" in text
-    assert "check PR #42" in text
+    assert "• ship the attention dashboard" in text
+    assert "• check PR #42" in text
 
     assert task_calls == [{"user_id": "U123", "lane": "matt", "status": "pending"}]
     assert memory_calls == ["matt"]
@@ -138,9 +140,9 @@ def test_attention_command_tolerates_trailing_question_mark(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert (
-        captured["text"]
-        == "You're clear in the work lane. No pending tasks or working memory items."
+    assert captured["text"] == (
+        "Nothing urgent in the work lane right now.\n\n"
+        "I have background context saved, but nothing that needs action."
     )
 
 
@@ -169,9 +171,9 @@ def test_attention_command_empty_state_is_clean(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert (
-        captured["text"]
-        == "You're clear in the matt lane. No pending tasks or working memory items."
+    assert captured["text"] == (
+        "Nothing urgent in the matt lane right now.\n\n"
+        "I have background context saved, but nothing that needs action."
     )
 
 
@@ -208,13 +210,14 @@ def test_attention_command_omits_memory_section_when_only_tasks(monkeypatch):
     assert response.status_code == 200
     text = captured["text"]
 
-    assert "What needs your attention in the matt lane:" in text
-    assert "Pending tasks:" in text
-    assert "* only task" in text
+    assert "Here’s what needs your attention in the matt lane:" in text
+    assert "Pending tasks\n" in text
+    assert "Pending tasks:" not in text
+    assert "• only task" in text
     assert "Commitment:" not in text
     assert "2026-04-24" not in text
     assert "Working memory:" not in text
-    assert "Operational context:" not in text
+    assert "Operational context" not in text
 
 
 def test_attention_command_omits_task_section_when_only_memory(monkeypatch):
@@ -255,11 +258,12 @@ def test_attention_command_omits_task_section_when_only_memory(monkeypatch):
     assert response.status_code == 200
     text = captured["text"]
 
-    assert "What needs your attention in the matt lane:" in text
-    assert "Operational context:" in text
+    assert "Here’s what needs your attention in the matt lane:" in text
+    assert "Operational context\n" in text
+    assert "Operational context:" not in text
     assert "Working memory:" not in text
-    assert "lone working memory item" in text
-    assert "Pending tasks:" not in text
+    assert "• lone working memory item" in text
+    assert "Pending tasks" not in text
 
 
 def test_attention_command_is_lane_scoped(monkeypatch):
@@ -316,10 +320,10 @@ def test_attention_pending_tasks_render_as_plain_bullets(monkeypatch):
     response = slack_route.build_attention_response(user_id="matt", lane="matt")
 
     assert response == (
-        "What needs your attention in the matt lane:\n"
+        "Here’s what needs your attention in the matt lane:\n"
         "\n"
-        "Pending tasks:\n"
-        "* follow up on Bishop attention dashboard"
+        "Pending tasks\n"
+        "• follow up on Bishop attention dashboard"
     )
 
 
@@ -377,10 +381,12 @@ def test_attention_does_not_show_durable_preference_as_urgent(monkeypatch):
     assert response.status_code == 200
     text = captured["text"]
 
-    assert "Pending tasks:" in text
-    assert "* draft the launch note" in text
-    assert "Operational context:" in text
-    assert "follow up on the Bishop attention dashboard" in text
+    assert "Pending tasks\n" in text
+    assert "Pending tasks:" not in text
+    assert "• draft the launch note" in text
+    assert "Operational context\n" in text
+    assert "Operational context:" not in text
+    assert "• follow up on the Bishop attention dashboard" in text
     assert "Matt wants Bishop to feel friendly and concise" not in text
 
 
@@ -435,10 +441,12 @@ def test_attention_acknowledges_durable_when_no_actionables(monkeypatch):
     assert response.status_code == 200
     text = captured["text"]
 
-    assert "Nothing urgent in the matt lane right now." in text
-    assert "durable background context" in text
-    assert "Pending tasks:" not in text
-    assert "Operational context:" not in text
+    assert text == (
+        "Nothing urgent in the matt lane right now.\n\n"
+        "I have background context saved, but nothing that needs action."
+    )
+    assert "Pending tasks" not in text
+    assert "Operational context" not in text
     assert "Matt's blood type" not in text
     assert "personal AI operating system" not in text
 
@@ -483,9 +491,11 @@ def test_attention_demotes_note_content_that_reads_as_durable(monkeypatch):
     assert response.status_code == 200
     text = captured["text"]
 
-    assert "Nothing urgent in the matt lane right now." in text
-    assert "durable background context" in text
-    assert "Operational context:" not in text
+    assert text == (
+        "Nothing urgent in the matt lane right now.\n\n"
+        "I have background context saved, but nothing that needs action."
+    )
+    assert "Operational context" not in text
     assert "personal AI operating system" not in text
 
 
