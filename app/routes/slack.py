@@ -19,6 +19,7 @@ from app.services.memory_service import (
     delete_memory_by_exact_content,
     delete_memory_by_query,
     get_memories,
+    infer_memory_category,
     search_memories,
 )
 from app.services.mode_service import VALID_MODES, get_mode, set_mode
@@ -653,17 +654,46 @@ def _format_attention_tasks(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def is_attention_actionable(item: dict) -> bool:
+    """Items that should appear as urgent attention items.
+    Profile/preference content is durable background, not actionable —
+    even if the working partition has uplifted it via operational keywords."""
+    if not isinstance(item, dict):
+        return False
+    content = clean_string(item.get("content"))
+    if not content:
+        return False
+    category = clean_string(item.get("category")).casefold()
+    if category in LOW_SIGNAL_MEMORY_CATEGORIES:
+        return False
+    if not category or category == "note":
+        inferred = (infer_memory_category(content, "note") or "").strip().lower()
+        if inferred in LOW_SIGNAL_MEMORY_CATEGORIES:
+            return False
+    return True
+
+
 def build_attention_response(user_id: str, lane: str) -> str:
     pending_tasks = get_tasks_for_lane(
         user_id=user_id, lane=lane, status="pending", limit=10
     )
-    working_memory, _ = get_partitioned_lane_memories(user_id, lane)
+    working_memory, background_memory = get_partitioned_lane_memories(user_id, lane)
 
-    if not pending_tasks and not working_memory:
+    operational = [m for m in working_memory if is_attention_actionable(m)]
+    durable_in_disguise = [m for m in working_memory if not is_attention_actionable(m)]
+    durable_total = durable_in_disguise + list(background_memory)
+
+    if not pending_tasks and not operational and not durable_total:
         return (
             f"You're clear in the {lane} lane. "
             "No pending tasks or working memory items."
         )
+
+    if not pending_tasks and not operational:
+        message = f"Nothing urgent in the {lane} lane right now."
+        if durable_total:
+            message += " I do have durable background context if you need it."
+        return message
 
     sections = [f"What needs your attention in the {lane} lane:"]
 
@@ -671,10 +701,10 @@ def build_attention_response(user_id: str, lane: str) -> str:
         sections.append("")
         sections.append(_format_attention_tasks(pending_tasks))
 
-    if working_memory:
+    if operational:
         sections.append("")
-        sections.append("Working memory:")
-        sections.extend(format_memory_lines(working_memory))
+        sections.append("Operational context:")
+        sections.extend(format_memory_lines(operational))
 
     return "\n".join(sections)
 

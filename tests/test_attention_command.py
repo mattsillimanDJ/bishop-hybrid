@@ -104,7 +104,8 @@ def test_attention_command_routes_and_includes_tasks_and_memory(monkeypatch):
     assert "* run the tests" in text
     assert "Commitment:" not in text
     assert "2026-04-24" not in text
-    assert "Working memory:" in text
+    assert "Operational context:" in text
+    assert "Working memory:" not in text
     assert "ship the attention dashboard" in text
     assert "check PR #42" in text
 
@@ -213,6 +214,7 @@ def test_attention_command_omits_memory_section_when_only_tasks(monkeypatch):
     assert "Commitment:" not in text
     assert "2026-04-24" not in text
     assert "Working memory:" not in text
+    assert "Operational context:" not in text
 
 
 def test_attention_command_omits_task_section_when_only_memory(monkeypatch):
@@ -254,7 +256,8 @@ def test_attention_command_omits_task_section_when_only_memory(monkeypatch):
     text = captured["text"]
 
     assert "What needs your attention in the matt lane:" in text
-    assert "Working memory:" in text
+    assert "Operational context:" in text
+    assert "Working memory:" not in text
     assert "lone working memory item" in text
     assert "Pending tasks:" not in text
 
@@ -317,4 +320,194 @@ def test_attention_pending_tasks_render_as_plain_bullets(monkeypatch):
         "\n"
         "Pending tasks:\n"
         "* follow up on Bishop attention dashboard"
+    )
+
+
+def test_attention_does_not_show_durable_preference_as_urgent(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    _stub_common(monkeypatch, lane="matt")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, lane=None, status="pending", limit=10: [
+            {
+                "created_at": "2026-04-24T09:00:00+00:00",
+                "task_text": "draft the launch note",
+                "assistant_commitment": "",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane=None, limit=20: [
+            {
+                "id": 1,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "preference",
+                "content": "Matt wants Bishop to feel friendly and concise.",
+            },
+            {
+                "id": 2,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "note",
+                "content": "follow up on the Bishop attention dashboard",
+            },
+        ],
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "what needs my attention", event_id="evt-attention-durable-pref"
+        ),
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+
+    assert "Pending tasks:" in text
+    assert "* draft the launch note" in text
+    assert "Operational context:" in text
+    assert "follow up on the Bishop attention dashboard" in text
+    assert "Matt wants Bishop to feel friendly and concise" not in text
+
+
+def test_attention_acknowledges_durable_when_no_actionables(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    _stub_common(monkeypatch, lane="matt")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, lane=None, status="pending", limit=10: [],
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane=None, limit=20: [
+            {
+                "id": 1,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "preference",
+                "content": (
+                    "Matt wants Bishop to feel like a personal AI operating system, "
+                    "not a generic chatbot."
+                ),
+            },
+            {
+                "id": 2,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "profile",
+                "content": "Matt's blood type is O+.",
+            },
+        ],
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "what needs my attention", event_id="evt-attention-only-durable"
+        ),
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+
+    assert "Nothing urgent in the matt lane right now." in text
+    assert "durable background context" in text
+    assert "Pending tasks:" not in text
+    assert "Operational context:" not in text
+    assert "Matt's blood type" not in text
+    assert "personal AI operating system" not in text
+
+
+def test_attention_demotes_note_content_that_reads_as_durable(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    _stub_common(monkeypatch, lane="matt")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, lane=None, status="pending", limit=10: [],
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane=None, limit=20: [
+            {
+                "id": 1,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "note",
+                "content": "Matt wants Bishop to feel like a personal AI operating system.",
+            },
+        ],
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "what needs my attention", event_id="evt-attention-durable-note"
+        ),
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+
+    assert "Nothing urgent in the matt lane right now." in text
+    assert "durable background context" in text
+    assert "Operational context:" not in text
+    assert "personal AI operating system" not in text
+
+
+def test_is_attention_actionable_filters_durable_categories():
+    assert not slack_route.is_attention_actionable(
+        {"category": "preference", "content": "Working on the Bishop project."}
+    )
+    assert not slack_route.is_attention_actionable(
+        {"category": "profile", "content": "Bishop is a private AI workspace."}
+    )
+    assert not slack_route.is_attention_actionable(
+        {
+            "category": "note",
+            "content": (
+                "Matt wants Bishop to feel like a personal AI operating system, "
+                "not a generic chatbot."
+            ),
+        }
+    )
+    assert slack_route.is_attention_actionable(
+        {"category": "note", "content": "ship the attention dashboard"}
+    )
+    assert slack_route.is_attention_actionable(
+        {"category": "note", "content": "check PR #42"}
     )
