@@ -38,6 +38,18 @@ STEMLAB_PRODUCT_THESIS = (
 )
 
 
+NO_WEAK_ENDING_MARKERS = [
+    "Do not end responses with weak permission-based offers",
+    "If you want, I can...",
+    "If you’d like...",
+    "Let me know if...",
+    "Would you like me to...",
+    "Prefer a concrete next action",
+    "Next move:",
+    "or no follow-up line",
+]
+
+
 @pytest.fixture(autouse=True)
 def use_temp_task_db(tmp_path, monkeypatch):
     test_db_path = tmp_path / "bishop_memory_test.db"
@@ -76,6 +88,41 @@ def test_generate_reply_uses_effective_provider(monkeypatch):
     assert "Do 1, 2, and 3" in captured["user_prompt"]
     assert "Ben is Matt's son" in captured["user_prompt"]
     assert "Tell me about Ben" in captured["user_prompt"]
+
+
+def test_base_system_prompt_includes_no_weak_ending_instruction():
+    prompt = chat_service.get_base_system_prompt()
+
+    for marker in NO_WEAK_ENDING_MARKERS:
+        assert marker in prompt, f"missing no-weak-ending marker: {marker}"
+
+
+def test_product_mode_inherits_no_weak_ending_instruction():
+    prompt = chat_service.get_mode_system_prompt("product")
+
+    for marker in NO_WEAK_ENDING_MARKERS:
+        assert marker in prompt, f"Product prompt missing no-weak-ending marker: {marker}"
+
+
+def test_stemlab_mode_inherits_no_weak_ending_instruction():
+    prompt = chat_service.get_mode_system_prompt("stemlab")
+
+    for marker in NO_WEAK_ENDING_MARKERS:
+        assert marker in prompt, f"StemLab prompt missing no-weak-ending marker: {marker}"
+
+
+def test_cmo_mode_inherits_no_weak_ending_instruction():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    for marker in NO_WEAK_ENDING_MARKERS:
+        assert marker in prompt, f"CMO prompt missing no-weak-ending marker: {marker}"
+
+
+def test_website_mode_inherits_no_weak_ending_instruction():
+    prompt = chat_service.get_mode_system_prompt("website")
+
+    for marker in NO_WEAK_ENDING_MARKERS:
+        assert marker in prompt, f"Website prompt missing no-weak-ending marker: {marker}"
 
 
 def test_get_mode_system_prompt_cmo_contains_lens_and_keywords():
