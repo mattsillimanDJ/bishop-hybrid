@@ -29,6 +29,15 @@ PRODUCT_BRAIN_MARKERS = [
 ]
 
 
+STEMLAB_PRODUCT_THESIS = (
+    "StemLab is Matt’s EDM-focused AI music product concept. "
+    "It helps DJs and producers create usable, DJ-ready stems, clean intros/outros, remix packs, "
+    "loop-safe exports, and Ableton/Rekordbox-friendly handoff. "
+    "The wedge is not generic AI music generation. "
+    "The wedge is controllable, high-quality, EDM-specific building blocks and stem exports that fit real producer and DJ workflows."
+)
+
+
 @pytest.fixture(autouse=True)
 def use_temp_task_db(tmp_path, monkeypatch):
     test_db_path = tmp_path / "bishop_memory_test.db"
@@ -193,6 +202,105 @@ def test_generate_reply_in_stemlab_mode_passes_stemlab_lens_to_model(monkeypatch
     assert "DJ-ready arrangements" in captured["system_prompt"]
     assert "Ableton" in captured["system_prompt"]
     assert "How should StemLab generate DJ-ready stems?" in captured["user_prompt"]
+
+
+def test_generate_reply_in_product_mode_includes_stemlab_context_when_mentioned(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "product")
+    monkeypatch.setattr(
+        chat_service, "generate_memory_context", lambda user_id, message: "No relevant memory found."
+    )
+    monkeypatch.setattr(chat_service, "generate_task_context", lambda user_id: "No pending tasks.")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    captured = {}
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured["system_prompt"] = system_prompt
+        captured["user_prompt"] = user_prompt
+        return "product reply"
+
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    result = chat_service.generate_reply(
+        user_id="U123",
+        message="Build a feature priority stack from v0 to v2 for StemLab.",
+    )
+
+    assert result == "product reply"
+    assert "Product context:" in captured["user_prompt"]
+    assert STEMLAB_PRODUCT_THESIS in captured["user_prompt"]
+
+
+def test_generate_reply_in_stemlab_mode_includes_stemlab_product_thesis(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "stemlab")
+    monkeypatch.setattr(
+        chat_service, "generate_memory_context", lambda user_id, message: "No relevant memory found."
+    )
+    monkeypatch.setattr(chat_service, "generate_task_context", lambda user_id: "No pending tasks.")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    captured = {}
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured["user_prompt"] = user_prompt
+        return "stemlab reply"
+
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    chat_service.generate_reply(user_id="U123", message="What should we test next?")
+
+    assert "Product context:" in captured["user_prompt"]
+    assert STEMLAB_PRODUCT_THESIS in captured["user_prompt"]
+
+
+def test_generate_reply_in_default_mode_only_includes_stemlab_context_when_mentioned(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(
+        chat_service, "generate_memory_context", lambda user_id, message: "No relevant memory found."
+    )
+    monkeypatch.setattr(chat_service, "generate_task_context", lambda user_id: "No pending tasks.")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    captured = []
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured.append(user_prompt)
+        return "default reply"
+
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    chat_service.generate_reply(user_id="U123", message="What should I build this week?")
+    chat_service.generate_reply(user_id="U123", message="What should I build for StemLab this week?")
+
+    assert STEMLAB_PRODUCT_THESIS not in captured[0]
+    assert "Product context:" not in captured[0]
+    assert STEMLAB_PRODUCT_THESIS in captured[1]
+    assert "Product context:" in captured[1]
+
+
+def test_generate_reply_in_cmo_mode_only_includes_stemlab_context_when_mentioned(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "cmo")
+    monkeypatch.setattr(
+        chat_service, "generate_memory_context", lambda user_id, message: "No relevant memory found."
+    )
+    monkeypatch.setattr(chat_service, "generate_task_context", lambda user_id: "No pending tasks.")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    captured = []
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured.append(user_prompt)
+        return "cmo reply"
+
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    chat_service.generate_reply(user_id="U123", message="How should we launch a product?")
+    chat_service.generate_reply(user_id="U123", message="How should we launch StemLab?")
+
+    assert STEMLAB_PRODUCT_THESIS not in captured[0]
+    assert "Product context:" not in captured[0]
+    assert STEMLAB_PRODUCT_THESIS in captured[1]
+    assert "Product context:" in captured[1]
 
 
 def test_generate_reply_in_default_mode_does_not_include_cmo_lens(monkeypatch):

@@ -10,6 +10,14 @@ from app.services.task_service import get_tasks
 
 MODE_BRAIN_DIR = Path(__file__).resolve().parent.parent / "data" / "mode_brains"
 
+STEMLAB_PRODUCT_THESIS = (
+    "StemLab is Matt’s EDM-focused AI music product concept. "
+    "It helps DJs and producers create usable, DJ-ready stems, clean intros/outros, remix packs, "
+    "loop-safe exports, and Ableton/Rekordbox-friendly handoff. "
+    "The wedge is not generic AI music generation. "
+    "The wedge is controllable, high-quality, EDM-specific building blocks and stem exports that fit real producer and DJ workflows."
+)
+
 
 def load_mode_brain(mode: str) -> str:
     try:
@@ -96,6 +104,14 @@ def generate_task_context(user_id: str, limit: int = 5) -> str:
         return "No pending tasks."
 
     return "\n".join(lines)
+
+
+def get_product_context(mode: str, message: str) -> str:
+    mentions_stemlab = bool(re.search(r"\bstemlab\b", message or "", re.IGNORECASE))
+    if mode == "stemlab" or mentions_stemlab:
+        return STEMLAB_PRODUCT_THESIS
+
+    return ""
 
 
 def get_base_system_prompt() -> str:
@@ -265,8 +281,16 @@ def generate_reply(user_id: str, message: str) -> str:
     memory_context = generate_memory_context(user_id=user_id, message=message)
     task_context = generate_task_context(user_id=user_id)
     system_prompt = get_mode_system_prompt(mode)
+    product_context = get_product_context(mode, message)
     personalization_guidance = get_personalization_guidance(mode, memory_context)
     provider = get_effective_provider()
+
+    product_context_section = ""
+    if product_context:
+        product_context_section = f"""
+Product context:
+{product_context}
+"""
 
     user_prompt = f"""
 Current mode:
@@ -278,6 +302,7 @@ Pending tasks:
 Relevant memory:
 {memory_context}
 
+{product_context_section}
 {personalization_guidance}
 
 User message:
@@ -288,6 +313,8 @@ User message:
     print(f"[Bishop] Mode: {mode}")
     print(f"[Bishop] Pending tasks: {task_context}")
     print(f"[Bishop] Memory context: {memory_context}")
+    if product_context:
+        print(f"[Bishop] Product context: {product_context}")
     if personalization_guidance:
         print(f"[Bishop] Personalization guidance: {personalization_guidance}")
 
