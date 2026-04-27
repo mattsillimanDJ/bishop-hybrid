@@ -3,6 +3,20 @@ import pytest
 from app.services import chat_service, task_service
 
 
+STEMLAB_TEMPLATE_MARKERS = [
+    "One-page MVP spec",
+    "Product name / working title",
+    "User flow",
+    "Entry point",
+    "Feature priority stack",
+    "v0 must-have",
+    "Competitor gap analysis",
+    "Where they fall short for EDM/DJs/producers",
+    "DJ/producer test plan",
+    "Pricing signal",
+]
+
+
 @pytest.fixture(autouse=True)
 def use_temp_task_db(tmp_path, monkeypatch):
     test_db_path = tmp_path / "bishop_memory_test.db"
@@ -183,6 +197,27 @@ def test_stemlab_mode_system_prompt_includes_stemlab_brain():
     assert "Moises" in prompt
     assert "Rekordbox stems" in prompt
     assert "Core recommendation" in prompt
+
+
+def test_stemlab_mode_system_prompt_includes_product_development_templates():
+    prompt = chat_service.get_mode_system_prompt("stemlab")
+
+    for marker in STEMLAB_TEMPLATE_MARKERS:
+        assert marker in prompt, f"missing StemLab template marker: {marker}"
+
+
+def test_default_mode_system_prompt_does_not_include_stemlab_template_guidance():
+    prompt = chat_service.get_mode_system_prompt("default")
+
+    for marker in STEMLAB_TEMPLATE_MARKERS:
+        assert marker not in prompt, f"default prompt leaked StemLab template marker: {marker}"
+
+
+def test_cmo_mode_system_prompt_does_not_include_stemlab_template_guidance():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    for marker in STEMLAB_TEMPLATE_MARKERS:
+        assert marker not in prompt, f"CMO prompt leaked StemLab template marker: {marker}"
 
 
 def test_default_mode_system_prompt_does_not_include_cmo_brain():

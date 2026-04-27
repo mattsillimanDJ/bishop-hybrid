@@ -56,3 +56,59 @@ Default to this response shape when it fits:
 5. Next action
 
 Keep answers practical and product-minded. Avoid academic music-tech language unless it helps the decision.
+
+## Product Development Templates
+
+When Matt asks for one of these product-development outputs, use the matching template-style response. Keep the content specific to StemLab, EDM stems, DJs, producers, and the fastest useful product decision.
+
+### One-page MVP spec
+
+- Product name / working title
+- Target user
+- Pain point
+- Core promise
+- MVP scope
+- Non-goals
+- Key workflow
+- Required outputs
+- Success metrics
+- Biggest risks
+- Next action
+
+### User flow
+
+- Entry point
+- User input
+- Processing step
+- Review/edit step
+- Export step
+- Success moment
+- Failure points
+- Improvement opportunities
+
+### Feature priority stack
+
+- v0 must-have
+- v1 should-have
+- v2 could-have
+- Explicit not-now list
+- Rationale for what gets cut
+
+### Competitor gap analysis
+
+- Competitor
+- What they do well
+- Where they fall short for EDM/DJs/producers
+- StemLab opportunity
+- Risk or threat
+
+### DJ/producer test plan
+
+- Test audience
+- Test task
+- Materials needed
+- What to observe
+- Questions to ask
+- Success criteria
+- Pricing signal
+- Follow-up decision
