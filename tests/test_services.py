@@ -61,11 +61,28 @@ def test_get_mode_system_prompt_cmo_contains_lens_and_keywords():
     assert "Do not over-format unless the user asks for a plan." in prompt
 
 
+def test_get_mode_system_prompt_stemlab_contains_music_product_lens():
+    prompt = chat_service.get_mode_system_prompt("stemlab")
+
+    assert "StemLab mode" in prompt
+    for keyword in [
+        "usable stem generation",
+        "DJ-ready arrangements",
+        "Ableton workflows",
+        "Suno and Udio style prompting",
+        "MVP planning",
+        "monetization strategy",
+        "practical next actions",
+    ]:
+        assert keyword in prompt, f"missing StemLab lens keyword: {keyword}"
+
+
 def test_get_mode_system_prompt_default_does_not_contain_cmo_lens():
     prompt = chat_service.get_mode_system_prompt("default")
 
     assert "CMO mode" not in prompt
     assert "audience, positioning, offer" not in prompt
+    assert "StemLab mode" not in prompt
 
 
 def test_generate_reply_in_cmo_mode_passes_cmo_lens_to_model(monkeypatch):
@@ -98,6 +115,36 @@ def test_generate_reply_in_cmo_mode_passes_cmo_lens_to_model(monkeypatch):
     assert "How should we launch the new event series?" in captured["user_prompt"]
 
 
+def test_generate_reply_in_stemlab_mode_passes_stemlab_lens_to_model(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "stemlab")
+    monkeypatch.setattr(
+        chat_service, "generate_memory_context", lambda user_id, message: "No relevant memory found."
+    )
+    monkeypatch.setattr(chat_service, "generate_task_context", lambda user_id: "No pending tasks.")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    captured = {}
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured["system_prompt"] = system_prompt
+        captured["user_prompt"] = user_prompt
+        return "music product reply"
+
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    result = chat_service.generate_reply(
+        user_id="U123",
+        message="How should StemLab generate DJ-ready stems?",
+    )
+
+    assert result == "music product reply"
+    assert "StemLab mode" in captured["system_prompt"]
+    assert "usable stem generation" in captured["system_prompt"]
+    assert "DJ-ready arrangements" in captured["system_prompt"]
+    assert "Ableton" in captured["system_prompt"]
+    assert "How should StemLab generate DJ-ready stems?" in captured["user_prompt"]
+
+
 def test_generate_reply_in_default_mode_does_not_include_cmo_lens(monkeypatch):
     monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(
@@ -118,6 +165,7 @@ def test_generate_reply_in_default_mode_does_not_include_cmo_lens(monkeypatch):
 
     assert "CMO mode" not in captured["system_prompt"]
     assert "audience, positioning, offer" not in captured["system_prompt"]
+    assert "StemLab mode" not in captured["system_prompt"]
 
 
 def test_cmo_mode_system_prompt_includes_cmo_brain():
@@ -128,10 +176,20 @@ def test_cmo_mode_system_prompt_includes_cmo_brain():
     assert "coordinated room package" in prompt
 
 
+def test_stemlab_mode_system_prompt_includes_stemlab_brain():
+    prompt = chat_service.get_mode_system_prompt("stemlab")
+
+    assert "StemLab Brain v1" in prompt
+    assert "Moises" in prompt
+    assert "Rekordbox stems" in prompt
+    assert "Core recommendation" in prompt
+
+
 def test_default_mode_system_prompt_does_not_include_cmo_brain():
     prompt = chat_service.get_mode_system_prompt("default")
 
     assert "CMO Brain v1" not in prompt
+    assert "StemLab Brain v1" not in prompt
 
 
 def test_cmo_mode_system_prompt_resilient_to_missing_brain_file(monkeypatch):
@@ -141,6 +199,15 @@ def test_cmo_mode_system_prompt_resilient_to_missing_brain_file(monkeypatch):
 
     assert "CMO mode" in prompt
     assert "CMO Brain v1" not in prompt
+
+
+def test_stemlab_mode_system_prompt_resilient_to_missing_brain_file(monkeypatch):
+    monkeypatch.setattr(chat_service, "load_mode_brain", lambda mode: "")
+
+    prompt = chat_service.get_mode_system_prompt("stemlab")
+
+    assert "StemLab mode" in prompt
+    assert "StemLab Brain v1" not in prompt
 
 
 def test_cmo_mode_system_prompt_includes_slack_concision_shape():
@@ -160,6 +227,7 @@ def test_default_mode_system_prompt_still_excludes_cmo_brain():
     prompt = chat_service.get_mode_system_prompt("default")
 
     assert "CMO Brain v1" not in prompt
+    assert "StemLab Brain v1" not in prompt
 
 
 def test_looks_like_explicit_task_command():

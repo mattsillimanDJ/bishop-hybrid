@@ -161,6 +161,18 @@ def get_mode_system_prompt(mode: str) -> str:
             + "Do not over-format unless the user asks for a plan. "
             + "For simple questions, stay concise."
         ),
+        "stemlab": (
+            base
+            + " "
+            + "You are in StemLab mode. "
+            + "Think like a music-tech founder, EDM producer, DJ, product strategist, and workflow designer. "
+            + "Help with EDM-specific AI music product strategy, usable stem generation, DJ-ready arrangements, "
+            + "Ableton workflows, Suno and Udio style prompting, remix workflows, MVP planning, monetization strategy, "
+            + "competitive gaps, founder decision-making, and practical next actions. "
+            + "Prefer answers organized around core recommendation, why it matters for DJs and producers, "
+            + "product implication, technical implication, and next action. "
+            + "Be specific, practical, musically literate, and product-minded."
+        ),
         "website": (
             base
             + " "
@@ -187,8 +199,8 @@ def get_mode_system_prompt(mode: str) -> str:
 
     prompt = prompts.get(mode, prompts["default"])
 
-    if mode == "cmo":
-        brain = load_mode_brain("cmo")
+    if mode in {"cmo", "stemlab"}:
+        brain = load_mode_brain(mode)
         if brain:
             prompt = prompt + "\n\n" + brain
 

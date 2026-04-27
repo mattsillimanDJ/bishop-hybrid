@@ -344,6 +344,7 @@ def help_text() -> str:
         "* mode personal\n"
         "* mode website\n"
         "* mode cmo\n"
+        "* mode stemlab\n"
         "* show mode\n\n"
         "System:\n"
         "* show lane\n"
@@ -1485,6 +1486,14 @@ async def slack_events(request: Request):
                         "CMO mode active.\n"
                         "I’ll think in terms of audience, positioning, offer, "
                         "channel, creative, budget, and measurable next action."
+                    )
+                elif requested_mode == "stemlab":
+                    response_text = (
+                        "StemLab mode active.\n"
+                        "I’ll think like a music-tech founder, EDM producer, DJ, product strategist, "
+                        "and workflow designer. I’ll focus on usable stems, DJ-ready arrangements, "
+                        "Ableton workflows, prompt strategy, competitive gaps, MVP definition, "
+                        "and practical next actions."
                     )
                 else:
                     response_text = f"Mode set to {requested_mode}."

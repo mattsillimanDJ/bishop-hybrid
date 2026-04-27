@@ -189,6 +189,7 @@ def test_help_command(monkeypatch):
     assert "Tasks:" in captured["text"]
     assert "Modes:" in captured["text"]
     assert "* mode cmo" in captured["text"]
+    assert "* mode stemlab" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -241,6 +242,39 @@ def test_mode_cmo_returns_strategic_acknowledgement(monkeypatch):
     )
 
 
+def test_mode_stemlab_returns_music_product_acknowledgement(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_mode_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_mode(user_id, mode):
+        set_mode_calls.append((user_id, mode))
+        return mode
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_mode", fake_set_mode)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("mode stemlab", event_id="evt-mode-stemlab")
+    )
+
+    assert response.status_code == 200
+    assert set_mode_calls == [("U123", "stemlab")]
+    assert captured["text"] == (
+        "StemLab mode active.\n"
+        "I’ll think like a music-tech founder, EDM producer, DJ, product strategist, "
+        "and workflow designer. I’ll focus on usable stems, DJ-ready arrangements, "
+        "Ableton workflows, prompt strategy, competitive gaps, MVP definition, "
+        "and practical next actions."
+    )
+
+
 def test_mode_default_still_returns_plain_acknowledgement(monkeypatch):
     reset_route_state()
     captured = {}
@@ -286,6 +320,7 @@ def test_unknown_mode_listing_includes_cmo(monkeypatch):
     assert "work" in text
     assert "personal" in text
     assert "website" in text
+    assert "stemlab" in text
 
 
 def test_show_lane_command(monkeypatch):
