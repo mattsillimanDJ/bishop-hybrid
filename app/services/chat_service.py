@@ -1,10 +1,22 @@
 import re
+from pathlib import Path
 
 from app.services.memory_service import search_memories
 from app.services.mode_service import get_mode
 from app.services.provider_service import generate_text
 from app.services.provider_state_service import get_effective_provider
 from app.services.task_service import get_tasks
+
+
+MODE_BRAIN_DIR = Path(__file__).resolve().parent.parent / "data" / "mode_brains"
+
+
+def load_mode_brain(mode: str) -> str:
+    try:
+        path = MODE_BRAIN_DIR / f"{mode}.md"
+        return path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
 
 
 COMMITMENT_PATTERNS = [
@@ -173,7 +185,14 @@ def get_mode_system_prompt(mode: str) -> str:
         ),
     }
 
-    return prompts.get(mode, prompts["default"])
+    prompt = prompts.get(mode, prompts["default"])
+
+    if mode == "cmo":
+        brain = load_mode_brain("cmo")
+        if brain:
+            prompt = prompt + "\n\n" + brain
+
+    return prompt
 
 
 def get_personalization_guidance(mode: str, memory_context: str) -> str:

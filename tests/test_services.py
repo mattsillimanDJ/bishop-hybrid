@@ -120,6 +120,29 @@ def test_generate_reply_in_default_mode_does_not_include_cmo_lens(monkeypatch):
     assert "audience, positioning, offer" not in captured["system_prompt"]
 
 
+def test_cmo_mode_system_prompt_includes_cmo_brain():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    assert "CMO Brain v1" in prompt
+    assert "Rooms To Go" in prompt
+    assert "coordinated room package" in prompt
+
+
+def test_default_mode_system_prompt_does_not_include_cmo_brain():
+    prompt = chat_service.get_mode_system_prompt("default")
+
+    assert "CMO Brain v1" not in prompt
+
+
+def test_cmo_mode_system_prompt_resilient_to_missing_brain_file(monkeypatch):
+    monkeypatch.setattr(chat_service, "load_mode_brain", lambda mode: "")
+
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    assert "CMO mode" in prompt
+    assert "CMO Brain v1" not in prompt
+
+
 def test_looks_like_explicit_task_command():
     assert task_service.looks_like_explicit_task_command("add task review the deck") is True
     assert task_service.looks_like_explicit_task_command("save task call John") is True
