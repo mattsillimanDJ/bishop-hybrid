@@ -143,6 +143,25 @@ def test_cmo_mode_system_prompt_resilient_to_missing_brain_file(monkeypatch):
     assert "CMO Brain v1" not in prompt
 
 
+def test_cmo_mode_system_prompt_includes_slack_concision_shape():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    for marker in [
+        "Recommendation:",
+        "Why:",
+        "Next move:",
+        "2 to 3 bullets",
+        "plan, strategy, rollout, deck, full breakdown, outline, or deep dive",
+    ]:
+        assert marker in prompt, f"missing CMO Slack concision marker: {marker}"
+
+
+def test_default_mode_system_prompt_still_excludes_cmo_brain():
+    prompt = chat_service.get_mode_system_prompt("default")
+
+    assert "CMO Brain v1" not in prompt
+
+
 def test_looks_like_explicit_task_command():
     assert task_service.looks_like_explicit_task_command("add task review the deck") is True
     assert task_service.looks_like_explicit_task_command("save task call John") is True
