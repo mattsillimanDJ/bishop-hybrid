@@ -1,6 +1,6 @@
 import pytest
 
-from app.services import chat_service, task_service
+from app.services import chat_service, mode_service, task_service
 
 
 STEMLAB_TEMPLATE_MARKERS = [
@@ -14,6 +14,18 @@ STEMLAB_TEMPLATE_MARKERS = [
     "Where they fall short for EDM/DJs/producers",
     "DJ/producer test plan",
     "Pricing signal",
+]
+
+
+PRODUCT_BRAIN_MARKERS = [
+    "Product Brain v1",
+    "productized service",
+    "Product thesis",
+    "User testing plan",
+    "Monetization options",
+    "Product roadmap",
+    "Build / buy / partner recommendation",
+    "Decision memo",
 ]
 
 
@@ -89,6 +101,30 @@ def test_get_mode_system_prompt_stemlab_contains_music_product_lens():
         "practical next actions",
     ]:
         assert keyword in prompt, f"missing StemLab lens keyword: {keyword}"
+
+
+def test_product_is_in_valid_modes():
+    assert "product" in mode_service.VALID_MODES
+
+
+def test_get_mode_system_prompt_product_contains_product_founder_lens():
+    prompt = chat_service.get_mode_system_prompt("product")
+
+    assert "Product mode" in prompt
+    for keyword in [
+        "product strategist",
+        "founder",
+        "user pain",
+        "ICP and target user",
+        "MVP definition",
+        "feature prioritization",
+        "customer discovery",
+        "user testing",
+        "monetization strategy",
+        "build-versus-buy thinking",
+        "fastest test of demand",
+    ]:
+        assert keyword in prompt, f"missing Product lens keyword: {keyword}"
 
 
 def test_get_mode_system_prompt_default_does_not_contain_cmo_lens():
@@ -206,6 +242,13 @@ def test_stemlab_mode_system_prompt_includes_product_development_templates():
         assert marker in prompt, f"missing StemLab template marker: {marker}"
 
 
+def test_product_mode_system_prompt_includes_product_brain():
+    prompt = chat_service.get_mode_system_prompt("product")
+
+    for marker in PRODUCT_BRAIN_MARKERS:
+        assert marker in prompt, f"missing Product brain marker: {marker}"
+
+
 def test_default_mode_system_prompt_does_not_include_stemlab_template_guidance():
     prompt = chat_service.get_mode_system_prompt("default")
 
@@ -213,11 +256,32 @@ def test_default_mode_system_prompt_does_not_include_stemlab_template_guidance()
         assert marker not in prompt, f"default prompt leaked StemLab template marker: {marker}"
 
 
+def test_default_mode_system_prompt_does_not_include_product_brain_guidance():
+    prompt = chat_service.get_mode_system_prompt("default")
+
+    for marker in PRODUCT_BRAIN_MARKERS:
+        assert marker not in prompt, f"default prompt leaked Product brain marker: {marker}"
+
+
 def test_cmo_mode_system_prompt_does_not_include_stemlab_template_guidance():
     prompt = chat_service.get_mode_system_prompt("cmo")
 
     for marker in STEMLAB_TEMPLATE_MARKERS:
         assert marker not in prompt, f"CMO prompt leaked StemLab template marker: {marker}"
+
+
+def test_cmo_mode_system_prompt_does_not_include_product_brain_guidance():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    for marker in PRODUCT_BRAIN_MARKERS:
+        assert marker not in prompt, f"CMO prompt leaked Product brain marker: {marker}"
+
+
+def test_stemlab_mode_system_prompt_does_not_include_product_brain_guidance():
+    prompt = chat_service.get_mode_system_prompt("stemlab")
+
+    for marker in PRODUCT_BRAIN_MARKERS:
+        assert marker not in prompt, f"StemLab prompt leaked Product brain marker: {marker}"
 
 
 def test_default_mode_system_prompt_does_not_include_cmo_brain():

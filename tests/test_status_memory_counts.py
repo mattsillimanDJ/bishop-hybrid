@@ -145,6 +145,32 @@ def test_status_output_can_show_stemlab_mode(monkeypatch):
     assert "*Mode:* stemlab" in captured["text"]
 
 
+def test_status_output_can_show_product_mode(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    _stub_provider_env(monkeypatch)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "product")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, status="pending", limit=10: [],
+    )
+    monkeypatch.setattr(
+        slack_route, "get_memories", lambda user_id, lane=None, limit=20: []
+    )
+
+    response = client.post("/slack/events", json=make_event("status", event_id="evt-status-product"))
+
+    assert response.status_code == 200
+    assert "*Mode:* product" in captured["text"]
+
+
 def test_status_output_shows_zero_when_memory_empty(monkeypatch):
     reset_route_state()
     captured = {}

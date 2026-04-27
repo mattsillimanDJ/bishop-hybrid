@@ -190,6 +190,7 @@ def test_help_command(monkeypatch):
     assert "Modes:" in captured["text"]
     assert "* mode cmo" in captured["text"]
     assert "* mode stemlab" in captured["text"]
+    assert "* mode product" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -275,6 +276,38 @@ def test_mode_stemlab_returns_music_product_acknowledgement(monkeypatch):
     )
 
 
+def test_mode_product_returns_product_acknowledgement(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_mode_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_mode(user_id, mode):
+        set_mode_calls.append((user_id, mode))
+        return mode
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_mode", fake_set_mode)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("mode product", event_id="evt-mode-product")
+    )
+
+    assert response.status_code == 200
+    assert set_mode_calls == [("U123", "product")]
+    assert captured["text"] == (
+        "Product mode active.\n"
+        "I’ll think like a product strategist, founder, operator, and practical builder. "
+        "I’ll focus on user pain, MVP scope, positioning, workflows, monetization, "
+        "test plans, tradeoffs, and the next useful decision."
+    )
+
+
 def test_mode_default_still_returns_plain_acknowledgement(monkeypatch):
     reset_route_state()
     captured = {}
@@ -321,6 +354,7 @@ def test_unknown_mode_listing_includes_cmo(monkeypatch):
     assert "personal" in text
     assert "website" in text
     assert "stemlab" in text
+    assert "product" in text
 
 
 def test_show_lane_command(monkeypatch):
