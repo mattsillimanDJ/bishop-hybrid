@@ -118,6 +118,15 @@ STEMLAB_MEMORY_QUERY_MESSAGES = {
     "stemlab risks": "StemLab Risk",
 }
 
+STEMLAB_EXPLICIT_MEMORY_CATEGORIES = {
+    "product direction": "StemLab Product Direction",
+    "decision": "StemLab Decision",
+    "open question": "StemLab Open Question",
+    "research finding": "StemLab Research Finding",
+    "risk": "StemLab Risk",
+    "next action": "StemLab Next Action",
+}
+
 LANE_QUERY_MESSAGES = {
     "show lane",
     "what lane am i in",
@@ -582,20 +591,37 @@ def split_stemlab_memory_candidates(text: str) -> list[str]:
     return deduped
 
 
+def explicit_stemlab_memory_pattern() -> re.Pattern:
+    category_names = "|".join(
+        re.escape(name) for name in sorted(STEMLAB_EXPLICIT_MEMORY_CATEGORIES, key=len, reverse=True)
+    )
+    return re.compile(
+        rf"\bfor\s+stemlab\s*,?\s*({category_names})\s*:\s*",
+        flags=re.IGNORECASE,
+    )
+
+
 def extract_stemlab_memory_items(user_text: str, response_text: str) -> list[dict]:
-    exchange_text = f"{user_text}\n{response_text}"
-    if "stemlab" not in exchange_text.casefold():
+    if "stemlab" not in (user_text or "").casefold():
         return []
 
+    pattern = explicit_stemlab_memory_pattern()
+    matches = list(pattern.finditer(user_text or ""))
     items: list[dict] = []
     seen: set[tuple[str, str]] = set()
-    for candidate in split_stemlab_memory_candidates(exchange_text):
-        if is_low_value_stemlab_memory_text(candidate):
+    for index, match in enumerate(matches):
+        next_match_start = matches[index + 1].start() if index + 1 < len(matches) else len(user_text)
+        category_key = match.group(1).casefold()
+        content_body = normalize_stemlab_memory_content(user_text[match.end():next_match_start])
+        if is_low_value_stemlab_memory_text(content_body):
             continue
-        category = stemlab_memory_category_for_text(candidate)
+
+        category = STEMLAB_EXPLICIT_MEMORY_CATEGORIES.get(category_key)
         if not category:
             continue
-        content = normalize_stemlab_memory_content(candidate)
+
+        category_label = category.replace("StemLab ", "")
+        content = f"{category_label}: {content_body}"
         key = (category, content.casefold())
         if key in seen:
             continue

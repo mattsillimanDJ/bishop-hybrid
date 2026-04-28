@@ -478,7 +478,76 @@ def test_stemlab_related_durable_message_is_captured_automatically(monkeypatch):
     assert captured["memories"][0]["lane"] == "stemlab"
     assert captured["memories"][0]["visibility"] == "private"
     assert captured["memories"][0]["category"] == "StemLab Decision"
-    assert "StemLab" in captured["memories"][0]["content"]
+    assert captured["memories"][0]["content"] == (
+        "Decision: focus on producer-ready Ableton stem packs."
+    )
+
+
+def test_stemlab_explicit_decision_memory_is_captured():
+    items = slack_route.extract_stemlab_memory_items(
+        "For StemLab, decision: validate separation-first before pure generation.",
+        "Decision: StemLab should focus on Ableton-ready stem packs.",
+    )
+
+    assert items == [
+        {
+            "category": "StemLab Decision",
+            "content": "Decision: validate separation-first before pure generation.",
+        }
+    ]
+
+
+def test_stemlab_explicit_risk_memory_is_captured():
+    items = slack_route.extract_stemlab_memory_items(
+        "For StemLab, risk: separation quality may struggle on dense EDM mixes.",
+        "",
+    )
+
+    assert items == [
+        {
+            "category": "StemLab Risk",
+            "content": "Risk: separation quality may struggle on dense EDM mixes.",
+        }
+    ]
+
+
+def test_multiple_explicit_stemlab_memories_in_one_message_are_cleanly_captured():
+    items = slack_route.extract_stemlab_memory_items(
+        (
+            "For StemLab, decision: validate separation-first before pure generation. "
+            "For StemLab, risk: separation quality may struggle on dense EDM mixes."
+        ),
+        "",
+    )
+
+    assert items == [
+        {
+            "category": "StemLab Decision",
+            "content": "Decision: validate separation-first before pure generation.",
+        },
+        {
+            "category": "StemLab Risk",
+            "content": "Risk: separation quality may struggle on dense EDM mixes.",
+        },
+    ]
+
+
+def test_stemlab_response_text_is_not_captured_without_explicit_user_memory():
+    items = slack_route.extract_stemlab_memory_items(
+        "What should we do next for StemLab?",
+        "Decision: StemLab should focus on Ableton-ready stem packs.",
+    )
+
+    assert items == []
+
+
+def test_generic_stemlab_discussion_is_not_captured_as_memory():
+    items = slack_route.extract_stemlab_memory_items(
+        "What should we do next for StemLab?",
+        "",
+    )
+
+    assert items == []
 
 
 def test_generic_message_is_not_captured_as_stemlab_memory(monkeypatch):
@@ -610,7 +679,7 @@ def test_duplicate_stemlab_memory_is_not_saved_twice(monkeypatch):
     response = client.post(
         "/slack/events",
         json=make_event(
-            "Decision: StemLab should focus on Ableton-ready stem packs.",
+            "For StemLab, decision: StemLab should focus on Ableton-ready stem packs.",
             event_id="evt-stemlab-duplicate-memory",
         ),
     )
