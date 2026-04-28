@@ -193,6 +193,10 @@ def test_help_command(monkeypatch):
     assert "* mode product" in captured["text"]
     assert "* modes" in captured["text"]
     assert "* show modes" in captured["text"]
+    assert "* what mode should I use" in captured["text"]
+    assert "* recommend mode" in captured["text"]
+    assert "* show mode\n* modes\n* show modes" in captured["text"]
+    assert "* show mode\n\n* modes" not in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -260,6 +264,59 @@ def test_show_modes_command_returns_live_mode_guide(monkeypatch):
 
     assert response.status_code == 200
     assert captured["text"] == slack_route.mode_guide_text()
+
+
+def test_what_mode_should_i_use_returns_mode_recommendation(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what mode should I use", event_id="evt-what-mode-should-i-use"),
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+    assert text == slack_route.mode_recommendation_text()
+    assert text.startswith("Choose a mode based on what you are trying to do:")
+    assert "* default: use for normal mixed questions" in text
+    assert "* work: use for client, production, vendor, and execution decisions" in text
+    assert "* personal: use for family, relationship, life admin, and personal planning" in text
+    assert "* website: use for site structure, copy, UX, SEO, and launch planning" in text
+    assert "* cmo: use for marketing strategy, positioning, channels, creative, budget, and measurement" in text
+    assert "* stemlab: use for EDM product, stems, Ableton, music workflow, and DJ/producer output" in text
+    assert "* product: use for product ideas, MVP scope, workflows, monetization, and tradeoffs" in text
+    assert text.endswith("Tell me what you are working on and I can suggest the best mode.")
+    assert "founder" not in text.lower()
+
+
+def test_recommend_mode_returns_same_mode_recommendation(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("recommend mode", event_id="evt-recommend-mode")
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == slack_route.mode_recommendation_text()
+    assert "founder" not in captured["text"].lower()
 
 
 def test_mode_cmo_returns_strategic_acknowledgement(monkeypatch):

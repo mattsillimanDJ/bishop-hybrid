@@ -85,6 +85,13 @@ MODE_GUIDE_MESSAGES = {
     "show modes",
 }
 
+MODE_RECOMMENDATION_MESSAGES = {
+    "what mode should i use",
+    "which mode should i use",
+    "recommend mode",
+    "help me choose a mode",
+}
+
 LANE_QUERY_MESSAGES = {
     "show lane",
     "what lane am i in",
@@ -351,9 +358,11 @@ def help_text() -> str:
         "* mode cmo\n"
         "* mode stemlab\n"
         "* mode product\n"
-        "* show mode\n\n"
+        "* show mode\n"
         "* modes\n"
-        "* show modes\n\n"
+        "* show modes\n"
+        "* what mode should I use\n"
+        "* recommend mode\n\n"
         "System:\n"
         "* show lane\n"
         "* what lane am i in\n"
@@ -380,6 +389,20 @@ def mode_guide_text() -> str:
         "* stemlab - Music-tech and EDM stem workflow mode for product, production, and DJ-ready output.\n"
         "* product - Product strategy mode for MVP scope, users, workflows, monetization, and tradeoffs.\n\n"
         "Use `mode <name>` to switch modes. Use `show mode` to see the current mode."
+    )
+
+
+def mode_recommendation_text() -> str:
+    return (
+        "Choose a mode based on what you are trying to do:\n"
+        "* default: use for normal mixed questions\n"
+        "* work: use for client, production, vendor, and execution decisions\n"
+        "* personal: use for family, relationship, life admin, and personal planning\n"
+        "* website: use for site structure, copy, UX, SEO, and launch planning\n"
+        "* cmo: use for marketing strategy, positioning, channels, creative, budget, and measurement\n"
+        "* stemlab: use for EDM product, stems, Ableton, music workflow, and DJ/producer output\n"
+        "* product: use for product ideas, MVP scope, workflows, monetization, and tradeoffs\n\n"
+        "Tell me what you are working on and I can suggest the best mode."
     )
 
 
@@ -1219,6 +1242,12 @@ async def slack_events(request: Request):
 
         if lowered in MODE_GUIDE_MESSAGES:
             response_text = mode_guide_text()
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in MODE_RECOMMENDATION_MESSAGES:
+            response_text = mode_recommendation_text()
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
