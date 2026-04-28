@@ -433,6 +433,392 @@ def test_stemlab_mvp_command_returns_mvp_workflow(monkeypatch):
     assert "Stem Maker" not in text
 
 
+def test_stemlab_related_durable_message_is_captured_automatically(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "generate_reply",
+        lambda user_id, message: (
+            "Decision: StemLab should focus on Ableton-ready stem packs for the v0 workflow."
+        ),
+    )
+    monkeypatch.setattr(slack_route, "response_contains_commitment", lambda response_text: False)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_memories", lambda user_id, lane, limit=100: [])
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "For StemLab, decision: focus on producer-ready Ableton stem packs.",
+            event_id="evt-stemlab-auto-memory",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == (
+        "Decision: StemLab should focus on Ableton-ready stem packs for the v0 workflow."
+    )
+    assert captured["memories"]
+    assert captured["memories"][0]["user_id"] == "U123"
+    assert captured["memories"][0]["lane"] == "stemlab"
+    assert captured["memories"][0]["visibility"] == "private"
+    assert captured["memories"][0]["category"] == "StemLab Decision"
+    assert "StemLab" in captured["memories"][0]["content"]
+
+
+def test_generic_message_is_not_captured_as_stemlab_memory(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "generate_reply",
+        lambda user_id, message: "Decision: focus the website homepage on qualified leads.",
+    )
+    monkeypatch.setattr(slack_route, "response_contains_commitment", lambda response_text: False)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_memories", lambda user_id, lane, limit=100: [])
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "Decision: focus the website homepage on qualified leads.",
+            event_id="evt-generic-auto-memory",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Decision: focus the website homepage on qualified leads."
+    assert captured["memories"] == []
+
+
+def test_help_modes_and_status_commands_are_not_captured_as_stemlab_memory(monkeypatch):
+    reset_route_state()
+    captured = {"responses": [], "memories": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_memories", lambda user_id, lane, limit=20: [])
+    monkeypatch.setattr(slack_route, "get_tasks", lambda user_id, lane=None, status="pending", limit=10: [])
+    monkeypatch.setattr(slack_route, "get_provider_override", lambda: None)
+    monkeypatch.setattr(
+        slack_route,
+        "get_provider_resolution",
+        lambda: {
+            "override": None,
+            "override_ok": False,
+            "override_message": "No override set",
+            "default_provider": "openai",
+            "default_ok": True,
+            "default_message": "OpenAI configuration looks valid",
+            "effective_provider": "openai",
+            "effective_from": "default",
+        },
+    )
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "validate_provider_config", lambda provider: (True, "ok"))
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "stemlab")
+
+    for index, command in enumerate(("help", "modes", "status"), start=1):
+        response = client.post(
+            "/slack/events",
+            json=make_event(command, event_id=f"evt-no-stemlab-capture-{index}"),
+        )
+        assert response.status_code == 200
+
+    assert len(captured["responses"]) == 3
+    assert captured["memories"] == []
+
+
+def test_duplicate_stemlab_memory_is_not_saved_twice(monkeypatch):
+    reset_route_state()
+    memory_store = [
+        {
+            "user_id": "U123",
+            "owner_user_id": "U123",
+            "lane": "stemlab",
+            "visibility": "private",
+            "category": "StemLab Decision",
+            "content": "Decision: StemLab should focus on Ableton-ready stem packs.",
+        }
+    ]
+
+    def fake_post_message(channel, text):
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        memory_store.append(kwargs)
+        return {"id": len(memory_store), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "generate_reply",
+        lambda user_id, message: "Decision: StemLab should focus on Ableton-ready stem packs.",
+    )
+    monkeypatch.setattr(slack_route, "response_contains_commitment", lambda response_text: False)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=100: [item for item in memory_store if item["lane"] == lane],
+    )
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "Decision: StemLab should focus on Ableton-ready stem packs.",
+            event_id="evt-stemlab-duplicate-memory",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert len(memory_store) == 1
+
+
+def test_show_stemlab_memory_command(monkeypatch):
+    reset_route_state()
+    captured = {"calls": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_get_memories(user_id, lane, limit=100):
+        captured["calls"].append((user_id, lane, limit))
+        return [
+            {
+                "owner_user_id": user_id,
+                "lane": "stemlab",
+                "visibility": "private",
+                "category": "StemLab Decision",
+                "content": "Decision: StemLab should focus on Ableton-ready stem packs.",
+            },
+            {
+                "owner_user_id": user_id,
+                "lane": "stemlab",
+                "visibility": "private",
+                "category": "StemLab Risk",
+                "content": "Risk: audio quality may not satisfy working producers.",
+            },
+        ]
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_memories", fake_get_memories)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("show stemlab memory", event_id="evt-show-stemlab-memory"),
+    )
+
+    assert response.status_code == 200
+    assert captured["calls"] == [("U123", "stemlab", 100)]
+    assert captured["text"].startswith("StemLab project memory:")
+    assert "StemLab Decision:" in captured["text"]
+    assert "Decision: StemLab should focus on Ableton-ready stem packs." in captured["text"]
+    assert "StemLab Risk:" in captured["text"]
+    assert "Risk: audio quality may not satisfy working producers." in captured["text"]
+
+
+def test_stemlab_memory_command(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=100: [
+            {
+                "owner_user_id": user_id,
+                "lane": "stemlab",
+                "visibility": "private",
+                "category": "StemLab Product Direction",
+                "content": "Product direction: StemLab is producer-ready workflow software.",
+            }
+        ],
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("stemlab memory", event_id="evt-stemlab-memory"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("StemLab project memory:")
+    assert "StemLab Product Direction:" in captured["text"]
+    assert "Product direction: StemLab is producer-ready workflow software." in captured["text"]
+
+
+def test_stemlab_decisions_command(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=100: [
+            {
+                "owner_user_id": user_id,
+                "lane": "stemlab",
+                "visibility": "private",
+                "category": "StemLab Decision",
+                "content": "Decision: validate separation quality before generation.",
+            },
+            {
+                "owner_user_id": user_id,
+                "lane": "stemlab",
+                "visibility": "private",
+                "category": "StemLab Risk",
+                "content": "Risk: unclear licensing.",
+            },
+        ],
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("stemlab decisions", event_id="evt-stemlab-decisions"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == (
+        "StemLab Decision:\n"
+        "* Decision: validate separation quality before generation."
+    )
+
+
+def test_stemlab_open_questions_command(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=100: [
+            {
+                "owner_user_id": user_id,
+                "lane": "stemlab",
+                "visibility": "private",
+                "category": "StemLab Open Question",
+                "content": "Question: should v0 create stems or separate uploads?",
+            }
+        ],
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("stemlab open questions", event_id="evt-stemlab-open-questions"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == (
+        "StemLab Open Question:\n"
+        "* Question: should v0 create stems or separate uploads?"
+    )
+
+
+def test_stemlab_risks_command(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane, limit=100: [
+            {
+                "owner_user_id": user_id,
+                "lane": "stemlab",
+                "visibility": "private",
+                "category": "StemLab Risk",
+                "content": "Risk: Ableton export quality may be hard to automate.",
+            }
+        ],
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("stemlab risks", event_id="evt-stemlab-risks"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == (
+        "StemLab Risk:\n"
+        "* Risk: Ableton export quality may be hard to automate."
+    )
+
+
 def test_mode_cmo_returns_strategic_acknowledgement(monkeypatch):
     reset_route_state()
     captured = {}

@@ -99,6 +99,25 @@ STEMLAB_PROJECT_MESSAGES = {
     "stemlab mvp",
 }
 
+STEMLAB_MEMORY_LANE = "stemlab"
+
+STEMLAB_MEMORY_CATEGORIES = {
+    "StemLab Product Direction",
+    "StemLab Decision",
+    "StemLab Open Question",
+    "StemLab Research Finding",
+    "StemLab Risk",
+    "StemLab Next Action",
+}
+
+STEMLAB_MEMORY_QUERY_MESSAGES = {
+    "show stemlab memory": None,
+    "stemlab memory": None,
+    "stemlab decisions": "StemLab Decision",
+    "stemlab open questions": "StemLab Open Question",
+    "stemlab risks": "StemLab Risk",
+}
+
 LANE_QUERY_MESSAGES = {
     "show lane",
     "what lane am i in",
@@ -375,6 +394,11 @@ def help_text() -> str:
         "* stemlab plan\n"
         "* stemlab next\n"
         "* stemlab mvp\n\n"
+        "* show stemlab memory\n"
+        "* stemlab memory\n"
+        "* stemlab decisions\n"
+        "* stemlab open questions\n"
+        "* stemlab risks\n\n"
         "System:\n"
         "* show lane\n"
         "* what lane am i in\n"
@@ -474,6 +498,201 @@ def stemlab_project_text(command: str) -> str:
     if command == "stemlab mvp":
         return stemlab_mvp_text()
     return stemlab_overview_text()
+
+
+def normalize_stemlab_memory_content(content: str) -> str:
+    content = clean_string(content)
+    content = re.sub(r"^\s*[-*•]\s*", "", content)
+    content = re.sub(r"^\s*\d+[.)]\s*", "", content)
+    return content.strip()
+
+
+def stemlab_memory_category_for_text(text: str) -> str | None:
+    content = normalize_stemlab_memory_content(text)
+    lowered = content.casefold()
+    if len(content) < 18:
+        return None
+
+    if "stem maker" in lowered or "founder mode" in lowered:
+        return None
+
+    if lowered.startswith(("open question:", "question:")) or lowered.endswith("?"):
+        return "StemLab Open Question"
+    if lowered.startswith("risk:") or re.search(r"\brisk\b|\bconcern\b|\bblocker\b", lowered):
+        return "StemLab Risk"
+    if lowered.startswith(("next action:", "action:")) or re.search(
+        r"\b(next action|interview|test with|validate with|research|decide whether|compare)\b",
+        lowered,
+    ):
+        return "StemLab Next Action"
+    if lowered.startswith(("research finding:", "finding:")) or re.search(
+        r"\bresearch finding\b|\bwe learned\b|\bresearch shows\b|\bfinding\b",
+        lowered,
+    ):
+        return "StemLab Research Finding"
+    if lowered.startswith(("decision:", "decided:")) or re.search(
+        r"\bwe decided\b|\bdecision\b|\bshould validate\b|\bshould prioritize\b|\bshould focus\b|\bshould avoid\b|\bmust\b",
+        lowered,
+    ):
+        return "StemLab Decision"
+    if lowered.startswith(("product direction:", "direction:")) or re.search(
+        r"\bwedge\b|\bnot just suno\b|\bproducer-ready\b|\bableton-ready\b|\bworkflow\b|\bbuilding blocks\b",
+        lowered,
+    ):
+        return "StemLab Product Direction"
+
+    return None
+
+
+def is_low_value_stemlab_memory_text(text: str) -> bool:
+    lowered = normalize_stemlab_memory_content(text).casefold().rstrip(".!?")
+    return lowered in {
+        "",
+        "great",
+        "thanks",
+        "thank you",
+        "let's go",
+        "lets go",
+        "sounds good",
+        "ok",
+        "okay",
+    }
+
+
+def split_stemlab_memory_candidates(text: str) -> list[str]:
+    candidates: list[str] = []
+    for raw_line in (text or "").splitlines():
+        line = normalize_stemlab_memory_content(raw_line)
+        if line:
+            candidates.append(line)
+
+    if len(candidates) <= 1:
+        sentence_parts = re.split(r"(?<=[.!?])\s+", text or "")
+        candidates.extend(normalize_stemlab_memory_content(part) for part in sentence_parts)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate = normalize_stemlab_memory_content(candidate)
+        key = candidate.casefold()
+        if not candidate or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+def extract_stemlab_memory_items(user_text: str, response_text: str) -> list[dict]:
+    exchange_text = f"{user_text}\n{response_text}"
+    if "stemlab" not in exchange_text.casefold():
+        return []
+
+    items: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in split_stemlab_memory_candidates(exchange_text):
+        if is_low_value_stemlab_memory_text(candidate):
+            continue
+        category = stemlab_memory_category_for_text(candidate)
+        if not category:
+            continue
+        content = normalize_stemlab_memory_content(candidate)
+        key = (category, content.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"category": category, "content": content})
+    return items[:5]
+
+
+def is_stemlab_auto_memory_eligible_command(lowered: str) -> bool:
+    if lowered == "help":
+        return False
+    if lowered in MODE_GUIDE_MESSAGES or lowered in MODE_RECOMMENDATION_MESSAGES:
+        return False
+    if lowered in STEMLAB_PROJECT_MESSAGES or lowered in STEMLAB_MEMORY_QUERY_MESSAGES:
+        return False
+    if lowered in MODE_QUERY_MESSAGES or lowered in LANE_QUERY_MESSAGES:
+        return False
+    if lowered in {"provider", "show provider", "model", "status", "show config"}:
+        return False
+    if lowered.startswith("provider "):
+        return False
+    return True
+
+
+def stemlab_memory_already_exists(user_id: str, category: str, content: str) -> bool:
+    existing = get_safe_memory_items(
+        get_memories(user_id=user_id, lane=STEMLAB_MEMORY_LANE, limit=100),
+        STEMLAB_MEMORY_LANE,
+    )
+    normalized_content = normalize_stemlab_memory_content(content).casefold()
+    normalized_category = category.casefold()
+    for item in existing:
+        existing_category = clean_string(item.get("category")).casefold()
+        existing_content = normalize_stemlab_memory_content(item.get("content")).casefold()
+        if existing_category == normalized_category and existing_content == normalized_content:
+            return True
+    return False
+
+
+def capture_stemlab_project_memory(user_id: str, user_text: str, response_text: str) -> list[dict]:
+    captured: list[dict] = []
+    for item in extract_stemlab_memory_items(user_text, response_text):
+        category = item["category"]
+        content = item["content"]
+        if stemlab_memory_already_exists(user_id, category, content):
+            continue
+        result = add_memory(
+            user_id=user_id,
+            category=category,
+            content=content,
+            lane=STEMLAB_MEMORY_LANE,
+            visibility="private",
+        )
+        if isinstance(result, dict) and not result.get("skipped"):
+            captured.append(result)
+    return captured
+
+
+def build_stemlab_memory_response(user_id: str, category: str | None = None) -> str:
+    raw_memories = get_memories(user_id=user_id, lane=STEMLAB_MEMORY_LANE, limit=100)
+    memories = get_safe_memory_items(raw_memories, STEMLAB_MEMORY_LANE)
+    memories = [
+        item
+        for item in memories
+        if clean_string(item.get("category")) in STEMLAB_MEMORY_CATEGORIES
+    ]
+    if category:
+        memories = [
+            item
+            for item in memories
+            if clean_string(item.get("category")).casefold() == category.casefold()
+        ]
+
+    memories = dedupe_memory_items(memories)
+
+    if not memories:
+        if category:
+            return f"No saved {category} items yet."
+        return "No saved StemLab project memory yet."
+
+    if category:
+        lines = [f"{category}:"]
+        lines.extend(f"* {clean_string(item.get('content'))}" for item in memories)
+        return "\n".join(lines)
+
+    lines = ["StemLab project memory:"]
+    for group in sorted(STEMLAB_MEMORY_CATEGORIES):
+        group_items = [
+            item
+            for item in memories
+            if clean_string(item.get("category")).casefold() == group.casefold()
+        ]
+        if not group_items:
+            continue
+        lines.append(f"{group}:")
+        lines.extend(f"* {clean_string(item.get('content'))}" for item in group_items)
+    return "\n".join(lines)
 
 
 def format_recent_conversations_for_slack(items: list[dict]) -> str:
@@ -1328,6 +1547,15 @@ async def slack_events(request: Request):
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
+        if lowered in STEMLAB_MEMORY_QUERY_MESSAGES:
+            response_text = build_stemlab_memory_response(
+                user_id=user_id,
+                category=STEMLAB_MEMORY_QUERY_MESSAGES[lowered],
+            )
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
+            return {"ok": True}
+
         memory_command_key = lowered.rstrip(" \t?!.,;:")
 
         if memory_command_key in {"what do you remember", "show memory"}:
@@ -1748,6 +1976,18 @@ async def slack_events(request: Request):
                 if isinstance(task_result, dict) and task_result.get("deduped"):
                     result_task_text = task_result.get("task_text", user_text)
                     print(f"Skipped duplicate commitment task for user {user_id} in {lane}: {result_task_text}")
+
+            if is_stemlab_auto_memory_eligible_command(lowered):
+                captured_memories = capture_stemlab_project_memory(
+                    user_id=user_id,
+                    user_text=user_text,
+                    response_text=response_text,
+                )
+                if captured_memories:
+                    print(
+                        f"Captured {len(captured_memories)} StemLab project memory item(s) "
+                        f"for user {user_id}"
+                    )
 
             log_conversation(
                 platform="slack",
