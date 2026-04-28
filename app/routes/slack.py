@@ -80,6 +80,11 @@ MODE_QUERY_MESSAGES = {
     "current mode",
 }
 
+MODE_GUIDE_MESSAGES = {
+    "modes",
+    "show modes",
+}
+
 LANE_QUERY_MESSAGES = {
     "show lane",
     "what lane am i in",
@@ -347,6 +352,8 @@ def help_text() -> str:
         "* mode stemlab\n"
         "* mode product\n"
         "* show mode\n\n"
+        "* modes\n"
+        "* show modes\n\n"
         "System:\n"
         "* show lane\n"
         "* what lane am i in\n"
@@ -359,6 +366,20 @@ def help_text() -> str:
         "* status\n"
         "* help\n\n"
         "Or just mention me normally and I'll reply."
+    )
+
+
+def mode_guide_text() -> str:
+    return (
+        "Live modes:\n"
+        "* default - General assistant mode for normal mixed requests.\n"
+        "* work - Work-focused mode for professional priorities, decisions, and execution.\n"
+        "* personal - Personal mode for life admin, private planning, and non-work context.\n"
+        "* website - Website mode for site copy, structure, UX, and web launch work.\n"
+        "* cmo - Marketing leadership mode for positioning, audience, channels, creative, and measurement.\n"
+        "* stemlab - Music-tech and EDM stem workflow mode for product, production, and DJ-ready output.\n"
+        "* product - Product strategy mode for MVP scope, users, workflows, monetization, and tradeoffs.\n\n"
+        "Use `mode <name>` to switch modes. Use `show mode` to see the current mode."
     )
 
 
@@ -1192,6 +1213,12 @@ async def slack_events(request: Request):
 
         if lowered == "help":
             response_text = help_text()
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in MODE_GUIDE_MESSAGES:
+            response_text = mode_guide_text()
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}

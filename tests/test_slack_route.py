@@ -191,6 +191,8 @@ def test_help_command(monkeypatch):
     assert "* mode cmo" in captured["text"]
     assert "* mode stemlab" in captured["text"]
     assert "* mode product" in captured["text"]
+    assert "* modes" in captured["text"]
+    assert "* show modes" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -210,6 +212,54 @@ def test_help_command(monkeypatch):
     assert "show background profile" in captured["text"]
     assert "forget exact memory ..." in captured["text"]
     assert "status" in captured["text"]
+
+
+def test_modes_command_returns_live_mode_guide(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("modes", event_id="evt-modes"))
+
+    assert response.status_code == 200
+    text = captured["text"]
+    assert text.startswith("Live modes:")
+    assert "* default -" in text
+    assert "* work -" in text
+    assert "* personal -" in text
+    assert "* website -" in text
+    assert "* cmo -" in text
+    assert "* stemlab -" in text
+    assert "* product -" in text
+    assert "founder" not in text.lower()
+    assert "Use `show mode` to see the current mode." in text
+
+
+def test_show_modes_command_returns_live_mode_guide(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("show modes", event_id="evt-show-modes")
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == slack_route.mode_guide_text()
 
 
 def test_mode_cmo_returns_strategic_acknowledgement(monkeypatch):
