@@ -97,6 +97,12 @@ STEMLAB_PROJECT_MESSAGES = {
     "stemlab plan",
     "stemlab next",
     "stemlab mvp",
+    "stemlab founder",
+    "stemlab product",
+    "stemlab positioning",
+    "stemlab customer",
+    "stemlab validation",
+    "stemlab assumptions",
 }
 
 STEMLAB_MEMORY_LANE = "stemlab"
@@ -403,6 +409,12 @@ def help_text() -> str:
         "* stemlab plan\n"
         "* stemlab next\n"
         "* stemlab mvp\n\n"
+        "* stemlab founder\n"
+        "* stemlab product\n"
+        "* stemlab positioning\n"
+        "* stemlab customer\n"
+        "* stemlab validation\n"
+        "* stemlab assumptions\n\n"
         "* show stemlab memory\n"
         "* stemlab memory\n"
         "* stemlab decisions\n"
@@ -499,6 +511,78 @@ def stemlab_mvp_text() -> str:
     )
 
 
+def stemlab_founder_text() -> str:
+    return (
+        "StemLab founder lens:\n"
+        "* Wedge: producer-ready stems and Ableton workflows, not generic AI songs.\n"
+        "* First market: EDM producers and remixers who already work from stems, loops, and reference tracks.\n"
+        "* Unfair advantage: practical taste in dance music workflows plus fast manual validation before model work.\n"
+        "* Fastest validation: deliver manual Ableton-ready stem packs to 3-5 producers and watch whether they use them.\n"
+        "* Biggest risk: the output is impressive but not clean or controllable enough for real production.\n"
+        "* Next founder move: pick one user segment and sell the workflow before building a broad platform."
+    )
+
+
+def stemlab_product_text() -> str:
+    return (
+        "StemLab product lens:\n"
+        "* Primary user: an EDM producer or remixer trying to turn ideas or source audio into usable production parts.\n"
+        "* Core workflow: prompt or upload audio, create or separate stems, label them, and export a DAW-ready pack.\n"
+        "* MVP boundary: one genre lane, one export target, and one excellent stem-pack workflow.\n"
+        "* Must-have output: cleanly named stems with BPM, key, loop points, sections, and Ableton-ready organization.\n"
+        "* What to avoid: a full DAW, social feed, licensing marketplace, or giant custom model before demand is proven.\n"
+        "* Next product move: define the exact v0 export pack and test it with real producer sessions."
+    )
+
+
+def stemlab_positioning_text() -> str:
+    return (
+        "StemLab positioning lens:\n"
+        "* Category: AI stem workflow tool for EDM production.\n"
+        "* Audience: DJs, remixers, and producers who need usable building blocks, not finished novelty tracks.\n"
+        "* Promise: turn ideas or audio into organized stems producers can drag into Ableton and keep working on.\n"
+        "* Proof: quality of separated or generated stems, labeling, BPM/key accuracy, and DAW-ready export structure.\n"
+        "* Claims to avoid: replacing producers, instant finished hits, or perfect rights-safe commercial output.\n"
+        "* One-sentence positioning: StemLab turns track ideas or audio into producer-ready stem packs for Ableton workflows."
+    )
+
+
+def stemlab_customer_text() -> str:
+    return (
+        "StemLab customer lens:\n"
+        "* First users: EDM producers, remixers, sample-pack buyers, and DJs who already edit tracks in Ableton.\n"
+        "* Pain points: hard-to-use AI output, messy stems, weak labels, missing BPM/key data, and slow remix prep.\n"
+        "* Interview targets: working producers, remix contest entrants, DJ edit makers, and sample-pack power users.\n"
+        "* Buying/use signals: they request exports, reuse stems in sessions, ask for more packs, or pay for faster prep.\n"
+        "* Disqualifying users: people who only want a finished AI song and never open a DAW.\n"
+        "* Next customer move: interview 5 producers with a sample stem pack and observe their actual workflow."
+    )
+
+
+def stemlab_validation_text() -> str:
+    return (
+        "StemLab validation lens:\n"
+        "* Concierge MVP: manually prepare a few Ableton-ready stem packs from prompts or uploads.\n"
+        "* Fake-door test: show the export promise and collect producer requests before automating the pipeline.\n"
+        "* Producer test: give users stems during a real session and watch whether they keep, edit, or discard them.\n"
+        "* Success metric: producers import the pack, use at least one stem, and ask for another workflow pass.\n"
+        "* Failure signal: they say it is interesting but do not use the stems in a project.\n"
+        "* Next validation move: run 3 observed sessions with a manual pack and record what blocks adoption."
+    )
+
+
+def stemlab_assumptions_text() -> str:
+    return (
+        "StemLab assumption stack:\n"
+        "* Demand assumption: producers want AI-assisted stem workflows enough to change their current process.\n"
+        "* Workflow assumption: Ableton-ready packs are more valuable than finished generated tracks for this audience.\n"
+        "* Quality assumption: stems can be clean, labeled, and controlled enough for real production use.\n"
+        "* Export assumption: BPM, key, sections, loop points, and file organization create meaningful workflow value.\n"
+        "* Willingness-to-pay assumption: users will pay for faster usable stems, not just experiment with free demos.\n"
+        "* Next assumption to test: whether producers reuse a manual StemLab pack inside an actual session."
+    )
+
+
 def stemlab_project_text(command: str) -> str:
     if command == "stemlab plan":
         return stemlab_plan_text()
@@ -506,6 +590,18 @@ def stemlab_project_text(command: str) -> str:
         return stemlab_next_text()
     if command == "stemlab mvp":
         return stemlab_mvp_text()
+    if command == "stemlab founder":
+        return stemlab_founder_text()
+    if command == "stemlab product":
+        return stemlab_product_text()
+    if command == "stemlab positioning":
+        return stemlab_positioning_text()
+    if command == "stemlab customer":
+        return stemlab_customer_text()
+    if command == "stemlab validation":
+        return stemlab_validation_text()
+    if command == "stemlab assumptions":
+        return stemlab_assumptions_text()
     return stemlab_overview_text()
 
 

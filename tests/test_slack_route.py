@@ -202,6 +202,12 @@ def test_help_command(monkeypatch):
     assert "* stemlab plan" in captured["text"]
     assert "* stemlab next" in captured["text"]
     assert "* stemlab mvp" in captured["text"]
+    assert "* stemlab founder" in captured["text"]
+    assert "* stemlab product" in captured["text"]
+    assert "* stemlab positioning" in captured["text"]
+    assert "* stemlab customer" in captured["text"]
+    assert "* stemlab validation" in captured["text"]
+    assert "* stemlab assumptions" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -431,6 +437,65 @@ def test_stemlab_mvp_command_returns_mvp_workflow(monkeypatch):
     assert "Validate workflow quality before trying to train a giant model." in text
     assert "founder mode" not in text.lower()
     assert "Stem Maker" not in text
+
+
+def test_stemlab_strategy_commands_return_expected_labels(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    commands_and_labels = [
+        ("stemlab founder", "StemLab founder lens:"),
+        ("stemlab product", "StemLab product lens:"),
+        ("stemlab positioning", "StemLab positioning lens:"),
+        ("stemlab customer", "StemLab customer lens:"),
+        ("stemlab validation", "StemLab validation lens:"),
+        ("stemlab assumptions", "StemLab assumption stack:"),
+    ]
+
+    for index, (command, label) in enumerate(commands_and_labels, start=1):
+        response = client.post(
+            "/slack/events",
+            json=make_event(command, event_id=f"evt-stemlab-strategy-{index}"),
+        )
+        assert response.status_code == 200
+        assert captured["responses"][-1].startswith(label)
+
+    assert len(captured["responses"]) == len(commands_and_labels)
+
+
+def test_stemlab_strategy_command_does_not_trigger_memory_capture(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("stemlab founder", event_id="evt-stemlab-founder-no-memory"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("StemLab founder lens:")
+    assert captured["memories"] == []
 
 
 def test_stemlab_related_durable_message_is_captured_automatically(monkeypatch):
