@@ -11,11 +11,16 @@ from app.services.task_service import get_tasks
 MODE_BRAIN_DIR = Path(__file__).resolve().parent.parent / "data" / "mode_brains"
 
 STEMLAB_PRODUCT_THESIS = (
-    "StemLab is Matt’s EDM-focused AI music product concept. "
-    "It helps DJs and producers create usable, DJ-ready stems, clean intros/outros, remix packs, "
-    "loop-safe exports, and Ableton/Rekordbox-friendly handoff. "
-    "The wedge is not generic AI music generation. "
-    "The wedge is controllable, high-quality, EDM-specific building blocks and stem exports that fit real producer and DJ workflows."
+    "StemLab is Matt’s AI product idea for DJs, EDM producers, remixers, and creators. "
+    "It is not just 'Suno for EDM.' "
+    "Suno-style products are strong at generating full songs, vocals, lyrics, beats, and musical ideas. "
+    "StemLab's wedge is useful, producer-ready stems and workflows: controllable EDM-specific building blocks "
+    "that can be brought into Ableton. "
+    "Think in terms of BPM, key, warping, clips, Session View, Arrangement View, clean audio, stems, loops, scenes, "
+    "drums, bass, vocals, hooks, synths, FX, MIDI when possible, dry/wet versions, loop points, arrangement sections, "
+    "and drag-and-drop exportable material. "
+    "The MVP should validate workflow before trying to train a giant model. "
+    "If a StemLab question requires research, say what needs to be researched instead of pretending technical certainty."
 )
 
 

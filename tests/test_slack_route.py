@@ -197,6 +197,11 @@ def test_help_command(monkeypatch):
     assert "* recommend mode" in captured["text"]
     assert "* show mode\n* modes\n* show modes" in captured["text"]
     assert "* show mode\n\n* modes" not in captured["text"]
+    assert "StemLab:" in captured["text"]
+    assert "* stemlab" in captured["text"]
+    assert "* stemlab plan" in captured["text"]
+    assert "* stemlab next" in captured["text"]
+    assert "* stemlab mvp" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -317,6 +322,115 @@ def test_recommend_mode_returns_same_mode_recommendation(monkeypatch):
     assert response.status_code == 200
     assert captured["text"] == slack_route.mode_recommendation_text()
     assert "founder" not in captured["text"].lower()
+
+
+def test_stemlab_command_returns_project_overview(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("stemlab", event_id="evt-stemlab"))
+
+    assert response.status_code == 200
+    text = captured["text"]
+    assert text == slack_route.stemlab_overview_text()
+    assert "StemLab is Matt's AI product idea for DJs, EDM producers, remixers, and creators." in text
+    assert "It is not just Suno for EDM." in text
+    assert "producer-ready stems and workflows" in text
+    assert "Ableton-ready material" in text
+    assert "founder mode" not in text.lower()
+    assert "Stem Maker" not in text
+
+
+def test_stemlab_plan_command_returns_structured_plan(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("stemlab plan", event_id="evt-stemlab-plan")
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+    assert text == slack_route.stemlab_plan_text()
+    assert text.startswith("StemLab product plan:")
+    assert "* User:" in text
+    assert "* Problem:" in text
+    assert "* Wedge:" in text
+    assert "* MVP:" in text
+    assert "* What not to build yet:" in text
+    assert "* Next decisions:" in text
+    assert "founder mode" not in text.lower()
+    assert "Stem Maker" not in text
+
+
+def test_stemlab_next_command_returns_next_actions(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("stemlab next", event_id="evt-stemlab-next")
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+    assert text == slack_route.stemlab_next_text()
+    assert text.startswith("Next 5 StemLab actions:")
+    assert "1. Define the first user:" in text
+    assert "5. Test the workflow" in text
+    assert "founder mode" not in text.lower()
+    assert "Stem Maker" not in text
+
+
+def test_stemlab_mvp_command_returns_mvp_workflow(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("stemlab mvp", event_id="evt-stemlab-mvp")
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+    assert text == slack_route.stemlab_mvp_text()
+    assert text.startswith("Smallest useful StemLab MVP workflow:")
+    assert "User describes a track idea or uploads audio." in text
+    assert "It detects BPM and key." in text
+    assert "It exports an Ableton-ready stem pack" in text
+    assert "Validate workflow quality before trying to train a giant model." in text
+    assert "founder mode" not in text.lower()
+    assert "Stem Maker" not in text
 
 
 def test_mode_cmo_returns_strategic_acknowledgement(monkeypatch):

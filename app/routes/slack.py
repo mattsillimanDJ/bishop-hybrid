@@ -92,6 +92,13 @@ MODE_RECOMMENDATION_MESSAGES = {
     "help me choose a mode",
 }
 
+STEMLAB_PROJECT_MESSAGES = {
+    "stemlab",
+    "stemlab plan",
+    "stemlab next",
+    "stemlab mvp",
+}
+
 LANE_QUERY_MESSAGES = {
     "show lane",
     "what lane am i in",
@@ -363,6 +370,11 @@ def help_text() -> str:
         "* show modes\n"
         "* what mode should I use\n"
         "* recommend mode\n\n"
+        "StemLab:\n"
+        "* stemlab\n"
+        "* stemlab plan\n"
+        "* stemlab next\n"
+        "* stemlab mvp\n\n"
         "System:\n"
         "* show lane\n"
         "* what lane am i in\n"
@@ -404,6 +416,64 @@ def mode_recommendation_text() -> str:
         "* product: use for product ideas, MVP scope, workflows, monetization, and tradeoffs\n\n"
         "Tell me what you are working on and I can suggest the best mode."
     )
+
+
+def stemlab_overview_text() -> str:
+    return (
+        "StemLab is Matt's AI product idea for DJs, EDM producers, remixers, and creators. "
+        "It is not just Suno for EDM. The wedge is useful, producer-ready stems and workflows: "
+        "drums, bass, vocals, hooks, synths, FX, MIDI when possible, dry/wet versions, loop points, "
+        "arrangement sections, and drag-and-drop Ableton-ready material.\n\n"
+        "I can help with product strategy, user workflows, MVP scope, competitive wedge, "
+        "build-vs-buy decisions, technical unknowns, pricing, and next actions. "
+        "If something needs research, I should call out what needs to be researched instead of pretending certainty."
+    )
+
+
+def stemlab_plan_text() -> str:
+    return (
+        "StemLab product plan:\n"
+        "* User: DJs, EDM producers, remixers, and creators who need usable building blocks for real production workflows.\n"
+        "* Problem: AI music tools can generate impressive full songs and ideas, but producers still need clean stems, loops, sections, and DAW-ready material they can actually use.\n"
+        "* Wedge: Producer-ready stems and workflows, not just full-song generation. Focus on BPM, key, warping, clips, Session View, Arrangement View, clean audio, stems, loops, scenes, and exportable material.\n"
+        "* MVP: Let a user describe a track idea or upload audio, create or separate useful stems, detect BPM and key, label stems clearly, suggest arrangement sections, and export an Ableton-ready stem pack.\n"
+        "* What not to build yet: Do not start with a giant custom model, full DAW replacement, broad social platform, licensing marketplace, or every genre at once.\n"
+        "* Next decisions: Pick the first user type, choose create-versus-separate for v0, define the export pack, list technical unknowns, and test whether producers would use the workflow."
+    )
+
+
+def stemlab_next_text() -> str:
+    return (
+        "Next 5 StemLab actions:\n"
+        "1. Define the first user: DJ, EDM producer, remixer, or creator, and choose one primary workflow.\n"
+        "2. Write the v0 promise in one sentence: what useful Ableton-ready output does StemLab create?\n"
+        "3. Map the export pack: stems, loops, BPM, key, labels, arrangement sections, dry/wet versions, and MIDI where possible.\n"
+        "4. Identify build-vs-buy options for generation, separation, BPM/key detection, labeling, and export packaging.\n"
+        "5. Test the workflow with 3-5 producers using a mocked or manual stem pack before training anything large."
+    )
+
+
+def stemlab_mvp_text() -> str:
+    return (
+        "Smallest useful StemLab MVP workflow:\n"
+        "1. User describes a track idea or uploads audio.\n"
+        "2. StemLab creates or separates useful stems.\n"
+        "3. It detects BPM and key.\n"
+        "4. It labels stems clearly: drums, bass, vocals, hooks, synths, FX, and loops.\n"
+        "5. It suggests arrangement sections for intro, build, drop, breakdown, and outro.\n"
+        "6. It exports an Ableton-ready stem pack with clean audio, loop points, dry/wet versions where useful, and drag-and-drop organization.\n\n"
+        "Validate workflow quality before trying to train a giant model."
+    )
+
+
+def stemlab_project_text(command: str) -> str:
+    if command == "stemlab plan":
+        return stemlab_plan_text()
+    if command == "stemlab next":
+        return stemlab_next_text()
+    if command == "stemlab mvp":
+        return stemlab_mvp_text()
+    return stemlab_overview_text()
 
 
 def format_recent_conversations_for_slack(items: list[dict]) -> str:
@@ -1248,6 +1318,12 @@ async def slack_events(request: Request):
 
         if lowered in MODE_RECOMMENDATION_MESSAGES:
             response_text = mode_recommendation_text()
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in STEMLAB_PROJECT_MESSAGES:
+            response_text = stemlab_project_text(lowered)
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
