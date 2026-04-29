@@ -555,6 +555,11 @@ def test_research_commands_return_expected_labels(monkeypatch):
     monkeypatch.setattr(slack_route, "post_message", fake_post_message)
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "validate_research_config",
+        lambda: (False, "RESEARCH_PROVIDER is not configured", "none"),
+    )
 
     commands_and_labels = [
         ("research", "Bishop research layer:"),
@@ -577,6 +582,197 @@ def test_research_commands_return_expected_labels(monkeypatch):
     assert "r/ableton" in captured["responses"][3]
     assert "Findings should only be saved when a source is available." in captured["responses"][4]
     assert len(captured["responses"]) == len(commands_and_labels)
+
+
+def test_research_status_reports_unavailable_without_provider(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        slack_route,
+        "validate_research_config",
+        lambda: (False, "RESEARCH_PROVIDER is not configured", "none"),
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("research status", event_id="evt-research-status-unavailable"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("Bishop research status:")
+    assert "Live web/MCP execution is not wired yet." in captured["text"]
+    assert "RESEARCH_PROVIDER is not configured" in captured["text"]
+
+
+def test_web_research_command_returns_unavailable_without_provider(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_run_web_research(query, stemlab=False):
+        assert query == "AI stem separation tools"
+        assert stemlab is False
+        return {
+            "available": False,
+            "query": query,
+            "missing_configuration": "RESEARCH_PROVIDER is not configured",
+            "next_setup_step": "Set RESEARCH_PROVIDER and RESEARCH_API_KEY.",
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "run_web_research", fake_run_web_research)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("web research AI stem separation tools", event_id="evt-web-research-unavailable"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("Live web research unavailable:")
+    assert "requested query: AI stem separation tools" in captured["text"]
+    assert "missing configuration: RESEARCH_PROVIDER is not configured" in captured["text"]
+    assert "next setup step: Set RESEARCH_PROVIDER and RESEARCH_API_KEY." in captured["text"]
+
+
+def test_stemlab_live_web_research_command_returns_unavailable_without_provider(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_run_web_research(query, stemlab=False):
+        assert query == "Ableton AI stem export complaints"
+        assert stemlab is True
+        return {
+            "available": False,
+            "query": query,
+            "missing_configuration": "RESEARCH_API_KEY is not set",
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "run_web_research", fake_run_web_research)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "stemlab live web research Ableton AI stem export complaints",
+            event_id="evt-stemlab-live-web-research-unavailable",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("StemLab live web research unavailable:")
+    assert "requested query: Ableton AI stem export complaints" in captured["text"]
+    assert "what Bishop would research:" in captured["text"]
+    assert "missing configuration: RESEARCH_API_KEY is not set" in captured["text"]
+
+
+def test_web_research_command_formats_mocked_available_result(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_run_web_research(query, stemlab=False):
+        assert query == "best stem separation APIs"
+        assert stemlab is False
+        return {
+            "available": True,
+            "query": query,
+            "sources": [
+                {
+                    "title": "Source A",
+                    "url": "https://example.com/source-a",
+                    "snippet": "Source-backed snippet.",
+                }
+            ],
+            "findings": ["Source A: Source-backed snippet."],
+            "confidence": "medium",
+            "open_questions": ["Which API performs best on dense EDM?"],
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "run_web_research", fake_run_web_research)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("web research best stem separation APIs", event_id="evt-web-research-available"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("Live web research result:")
+    assert "Query: best stem separation APIs" in captured["text"]
+    assert "Source A: Source-backed snippet." in captured["text"]
+    assert "Source A - https://example.com/source-a" in captured["text"]
+    assert "Confidence: medium" in captured["text"]
+
+
+def test_stemlab_live_web_research_command_formats_mocked_available_result(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_run_web_research(query, stemlab=False):
+        assert query == "AI stems Ableton workflow"
+        assert stemlab is True
+        return {
+            "available": True,
+            "query": query,
+            "sources": [
+                {
+                    "title": "Producer workflow source",
+                    "url": "https://example.com/workflow",
+                    "snippet": "Workflow evidence.",
+                }
+            ],
+            "findings": ["Producer workflow source: Workflow evidence."],
+            "confidence": "medium",
+            "product_implications": ["Focus on clean labels and Ableton-ready exports."],
+            "open_questions": ["How often do producers reuse generated stems?"],
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "run_web_research", fake_run_web_research)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "stemlab live web research AI stems Ableton workflow",
+            event_id="evt-stemlab-web-research-available",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("StemLab live web research result:")
+    assert "Product implications:" in captured["text"]
+    assert "What not to build:" in captured["text"]
+    assert "Producer workflow source - https://example.com/workflow" in captured["text"]
 
 
 def test_research_command_does_not_trigger_memory_capture(monkeypatch):

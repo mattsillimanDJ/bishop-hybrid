@@ -35,6 +35,11 @@ from app.services.provider_state_service import (
     get_provider_resolution,
     set_provider_override,
 )
+from app.services.research_service import (
+    is_live_research_available,
+    run_web_research,
+    validate_research_config,
+)
 from app.services.task_service import (
     add_task,
     build_task_text_from_user_message,
@@ -440,7 +445,9 @@ def help_text() -> str:
         "Research:\n"
         "* research\n"
         "* research status\n"
+        "* web research ...\n"
         "* stemlab web research\n"
+        "* stemlab live web research ...\n"
         "* stemlab reddit search plan\n"
         "* stemlab source backed finding\n\n"
         "* show stemlab memory\n"
@@ -698,7 +705,7 @@ def stemlab_research_questions_text() -> str:
 
 
 def live_research_tools_available() -> bool:
-    return False
+    return is_live_research_available()
 
 
 def research_text() -> str:
@@ -716,14 +723,19 @@ def research_text() -> str:
 
 
 def research_status_text() -> str:
-    if live_research_tools_available():
-        live_status = "Live web/MCP search appears available in the current codebase."
+    available, message, provider = validate_research_config()
+    if available:
+        live_status = f"Live web research is configured through {provider}."
     else:
-        live_status = "Live web/MCP execution is not wired yet."
+        if provider in {"", "none", "off", "disabled"}:
+            live_status = "Live web/MCP execution is not wired yet."
+        else:
+            live_status = "Live web research provider is not configured."
 
     return (
         "Bishop research status:\n"
         f"* Live capability: {live_status}\n"
+        f"* Configuration: {message}\n"
         "* Deterministic research plans are available.\n"
         "* Persistent memory is available.\n"
         "* Source-backed findings can be structured for saving when a real source is available."
@@ -773,6 +785,107 @@ def stemlab_source_backed_finding_text() -> str:
         "* Open question:\n\n"
         "Findings should only be saved when a source is available."
     )
+
+
+def extract_web_research_query(user_text: str) -> str | None:
+    match = re.match(r"^\s*web\s+research(?:\s*[:,-]\s*|\s+)(.+)$", user_text or "", re.IGNORECASE)
+    if not match:
+        return None
+    return re.sub(r"\s+", " ", match.group(1)).strip() or None
+
+
+def extract_stemlab_live_web_research_query(user_text: str) -> str | None:
+    match = re.match(
+        r"^\s*stemlab\s+live\s+web\s+research(?:\s*[:,-]\s*|\s+)(.+)$",
+        user_text or "",
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return re.sub(r"\s+", " ", match.group(1)).strip() or None
+
+
+def format_sources_for_slack(sources: list[dict]) -> list[str]:
+    if not sources:
+        return ["* none"]
+
+    lines = []
+    for source in sources:
+        title = clean_string(source.get("title"), "Untitled source")
+        url = clean_string(source.get("url"))
+        if url:
+            lines.append(f"* {title} - {url}")
+        else:
+            lines.append(f"* {title}")
+    return lines
+
+
+def format_list_section(title: str, items: list[str]) -> str:
+    safe_items = [clean_string(item) for item in items if clean_string(item)]
+    if not safe_items:
+        safe_items = ["none"]
+    return title + "\n" + "\n".join(f"* {item}" for item in safe_items)
+
+
+def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
+    query = clean_string(result.get("query"), "unknown")
+
+    if not result.get("available"):
+        if stemlab:
+            return (
+                "StemLab live web research unavailable:\n"
+                f"* requested query: {query}\n"
+                "* what Bishop would research: source-backed StemLab workflow, competitor, quality, and Ableton-ready evidence.\n"
+                f"* missing configuration: {clean_string(result.get('missing_configuration'), 'unknown')}"
+            )
+
+        return (
+            "Live web research unavailable:\n"
+            f"* requested query: {query}\n"
+            f"* missing configuration: {clean_string(result.get('missing_configuration'), 'unknown')}\n"
+            f"* next setup step: {clean_string(result.get('next_setup_step'), 'Configure RESEARCH_PROVIDER and RESEARCH_API_KEY.')}"
+        )
+
+    sources = result.get("sources") if isinstance(result.get("sources"), list) else []
+    findings = result.get("findings") if isinstance(result.get("findings"), list) else []
+    implications = (
+        result.get("product_implications")
+        if isinstance(result.get("product_implications"), list)
+        else []
+    )
+    open_questions = (
+        result.get("open_questions")
+        if isinstance(result.get("open_questions"), list)
+        else []
+    )
+
+    if stemlab:
+        sections = [
+            "StemLab live web research result:",
+            f"Query: {query}",
+            format_list_section("Findings:", findings),
+            format_list_section("Product implications:", implications),
+            format_list_section(
+                "What not to build:",
+                ["Do not build or claim anything based on unsourced findings or single-source weak evidence."],
+            ),
+            format_list_section("Open questions:", open_questions),
+            "Sources checked:\n" + "\n".join(format_sources_for_slack(sources)),
+            f"Suggested memory item: {clean_string(result.get('suggested_memory_item'), 'none yet')}",
+        ]
+        return "\n".join(sections)
+
+    sections = [
+        "Live web research result:",
+        f"Query: {query}",
+        "Sources checked:\n" + "\n".join(format_sources_for_slack(sources)),
+        format_list_section("Findings:", findings),
+        f"Confidence: {clean_string(result.get('confidence'), 'unknown')}",
+        format_list_section("Product implications:", implications),
+        format_list_section("Open questions:", open_questions),
+        f"Suggested memory item: {clean_string(result.get('suggested_memory_item'), 'none yet')}",
+    ]
+    return "\n".join(sections)
 
 
 def stemlab_project_text(command: str) -> str:
@@ -1877,6 +1990,22 @@ async def slack_events(request: Request):
 
         if lowered in RESEARCH_MESSAGES:
             response_text = research_command_text(lowered)
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        stemlab_live_query = extract_stemlab_live_web_research_query(user_text)
+        if stemlab_live_query:
+            result = run_web_research(stemlab_live_query, stemlab=True)
+            response_text = format_web_research_response(result, stemlab=True)
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        web_research_query = extract_web_research_query(user_text)
+        if web_research_query:
+            result = run_web_research(web_research_query)
+            response_text = format_web_research_response(result)
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}

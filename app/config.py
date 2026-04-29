@@ -19,5 +19,9 @@ class Settings:
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
+    RESEARCH_PROVIDER: str = os.getenv("RESEARCH_PROVIDER", "none").lower()
+    RESEARCH_API_KEY: str = os.getenv("RESEARCH_API_KEY", "")
+    RESEARCH_API_URL: str = os.getenv("RESEARCH_API_URL", "")
+
 
 settings = Settings()
