@@ -805,14 +805,19 @@ def extract_stemlab_live_web_research_query(user_text: str) -> str | None:
     return re.sub(r"\s+", " ", match.group(1)).strip() or None
 
 
+def escape_slack_external_text(value: object) -> str:
+    text = clean_string(value)
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def format_sources_for_slack(sources: list[dict]) -> list[str]:
     if not sources:
         return ["* none"]
 
     lines = []
     for source in sources:
-        title = clean_string(source.get("title"), "Untitled source")
-        url = clean_string(source.get("url"))
+        title = escape_slack_external_text(source.get("title")) or "Untitled source"
+        url = escape_slack_external_text(source.get("url"))
         if url:
             lines.append(f"* {title} - {url}")
         else:
@@ -820,8 +825,15 @@ def format_sources_for_slack(sources: list[dict]) -> list[str]:
     return lines
 
 
-def format_list_section(title: str, items: list[str]) -> str:
-    safe_items = [clean_string(item) for item in items if clean_string(item)]
+def format_list_section(title: str, items: list[str], *, escape_external: bool = False) -> str:
+    if escape_external:
+        safe_items = [
+            escape_slack_external_text(item)
+            for item in items
+            if escape_slack_external_text(item)
+        ]
+    else:
+        safe_items = [clean_string(item) for item in items if clean_string(item)]
     if not safe_items:
         safe_items = ["none"]
     return title + "\n" + "\n".join(f"* {item}" for item in safe_items)
@@ -863,7 +875,7 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
         sections = [
             "StemLab live web research result:",
             f"Query: {query}",
-            format_list_section("Findings:", findings),
+            format_list_section("Findings:", findings, escape_external=True),
             format_list_section("Product implications:", implications),
             format_list_section(
                 "What not to build:",
@@ -879,7 +891,7 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
         "Live web research result:",
         f"Query: {query}",
         "Sources checked:\n" + "\n".join(format_sources_for_slack(sources)),
-        format_list_section("Findings:", findings),
+        format_list_section("Findings:", findings, escape_external=True),
         f"Confidence: {clean_string(result.get('confidence'), 'unknown')}",
         format_list_section("Product implications:", implications),
         format_list_section("Open questions:", open_questions),

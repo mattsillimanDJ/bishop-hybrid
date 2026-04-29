@@ -728,6 +728,31 @@ def test_web_research_command_formats_mocked_available_result(monkeypatch):
     assert "Confidence: medium" in captured["text"]
 
 
+def test_web_research_response_escapes_external_slack_markup():
+    text = slack_route.format_web_research_response(
+        {
+            "available": True,
+            "query": "malicious provider text",
+            "sources": [
+                {
+                    "title": "<!channel>",
+                    "url": "https://example.com/?a=<@U123>&b=1",
+                    "snippet": "ignored here",
+                }
+            ],
+            "findings": ["<!channel> says use <@U123> & ship it"],
+            "confidence": "medium",
+            "open_questions": [],
+        }
+    )
+
+    assert "<!channel>" not in text
+    assert "<@U123>" not in text
+    assert "&lt;!channel&gt;" in text
+    assert "&lt;@U123&gt;" in text
+    assert "&amp;" in text
+
+
 def test_stemlab_live_web_research_command_formats_mocked_available_result(monkeypatch):
     reset_route_state()
     captured = {}

@@ -6,6 +6,7 @@ from app.config import settings
 
 
 VALID_RESEARCH_PROVIDERS = {"tavily", "brave", "serper"}
+RESEARCH_PROVIDER_TIMEOUT_SECONDS = 5.0
 
 DEFAULT_RESEARCH_API_URLS = {
     "tavily": "https://api.tavily.com/search",
@@ -143,18 +144,18 @@ def search_provider(query: str, *, limit: int = 5) -> list[dict]:
     provider = normalize_research_provider()
     api_url = get_research_api_url(provider)
 
-    with httpx.Client(timeout=12.0) as client:
+    with httpx.Client(timeout=RESEARCH_PROVIDER_TIMEOUT_SECONDS) as client:
         if provider == "tavily":
             response = client.post(
                 api_url,
                 json={
-                    "api_key": settings.RESEARCH_API_KEY,
                     "query": query,
                     "search_depth": "basic",
                     "include_answer": False,
                     "include_raw_content": False,
                     "max_results": limit,
                 },
+                headers={"Authorization": f"Bearer {settings.RESEARCH_API_KEY}"},
             )
         elif provider == "brave":
             response = client.get(
