@@ -110,6 +110,14 @@ STEMLAB_PROJECT_MESSAGES = {
     "stemlab technical research",
     "stemlab what not to build",
     "stemlab research questions",
+    "stemlab web research",
+    "stemlab reddit search plan",
+    "stemlab source backed finding",
+}
+
+RESEARCH_MESSAGES = {
+    "research",
+    "research status",
 }
 
 STEMLAB_MEMORY_LANE = "stemlab"
@@ -429,6 +437,12 @@ def help_text() -> str:
         "* stemlab technical research\n"
         "* stemlab what not to build\n"
         "* stemlab research questions\n\n"
+        "Research:\n"
+        "* research\n"
+        "* research status\n"
+        "* stemlab web research\n"
+        "* stemlab reddit search plan\n"
+        "* stemlab source backed finding\n\n"
         "* show stemlab memory\n"
         "* stemlab memory\n"
         "* stemlab decisions\n"
@@ -683,6 +697,84 @@ def stemlab_research_questions_text() -> str:
     )
 
 
+def live_research_tools_available() -> bool:
+    return False
+
+
+def research_text() -> str:
+    return (
+        "Bishop research layer:\n"
+        "Bishop can plan research, structure source review, and save source-backed findings, "
+        "but live browsing depends on connected tools.\n"
+        "* plan: turn the question into a deterministic research plan.\n"
+        "* search: define source targets and query patterns before looking anything up.\n"
+        "* verify: separate claims, evidence, credibility, and open questions.\n"
+        "* synthesize: turn reviewed sources into product or decision implications.\n"
+        "* cite: keep findings tied to the sources that support them.\n"
+        "* save: save only source-backed findings, not unsupported guesses."
+    )
+
+
+def research_status_text() -> str:
+    if live_research_tools_available():
+        live_status = "Live web/MCP search appears available in the current codebase."
+    else:
+        live_status = "Live web/MCP execution is not wired yet."
+
+    return (
+        "Bishop research status:\n"
+        f"* Live capability: {live_status}\n"
+        "* Deterministic research plans are available.\n"
+        "* Persistent memory is available.\n"
+        "* Source-backed findings can be structured for saving when a real source is available."
+    )
+
+
+def research_command_text(command: str) -> str:
+    if command == "research status":
+        return research_status_text()
+    return research_text()
+
+
+def stemlab_web_research_text() -> str:
+    return (
+        "StemLab web research workflow:\n"
+        "* question: define the decision the research must inform.\n"
+        "* source targets: identify primary sources, docs, product pages, forums, reviews, and credible comparisons.\n"
+        "* search queries: write focused queries for user pain, workflow behavior, competitors, and technical feasibility.\n"
+        "* credibility checks: separate official claims, user reports, repeated complaints, and unsupported opinions.\n"
+        "* synthesis: group evidence by workflow, quality, technical risk, market signal, and product implication.\n"
+        "* decision output: summarize what to do next, what not to claim, and what remains unknown.\n\n"
+        "This is a workflow unless live search tools are wired."
+    )
+
+
+def stemlab_reddit_search_plan_text() -> str:
+    return (
+        "StemLab Reddit search plan:\n"
+        "* communities: r/ableton, r/edmproduction, r/musicproduction, r/DJs, r/Beatmatch, r/WeAreTheMusicMakers.\n"
+        "* query patterns: stems, remix prep, Ableton import, warping, BPM, key, sample cleanup, AI music, stem separation.\n"
+        "* complaints to look for: artifacts, bleed, bad timing, weak labels, unusable stems, missing metadata, slow prep, poor export flow.\n"
+        "* quality/artifact language: phasing, smearing, watery vocals, transient loss, timing drift, muddy bass, noisy highs.\n"
+        "* Ableton workflow signals: Session View, Arrangement View, clips, scenes, racks, warp markers, loop points, dry/wet versions.\n"
+        "* synthesis tags: pain, workflow, tool, artifact, severity, workaround, willingness-to-pay, product implication."
+    )
+
+
+def stemlab_source_backed_finding_text() -> str:
+    return (
+        "StemLab source-backed finding format:\n"
+        "* Finding:\n"
+        "* Source:\n"
+        "* Evidence:\n"
+        "* Confidence:\n"
+        "* Product implication:\n"
+        "* Memory category:\n"
+        "* Open question:\n\n"
+        "Findings should only be saved when a source is available."
+    )
+
+
 def stemlab_project_text(command: str) -> str:
     if command == "stemlab plan":
         return stemlab_plan_text()
@@ -716,6 +808,12 @@ def stemlab_project_text(command: str) -> str:
         return stemlab_what_not_to_build_text()
     if command == "stemlab research questions":
         return stemlab_research_questions_text()
+    if command == "stemlab web research":
+        return stemlab_web_research_text()
+    if command == "stemlab reddit search plan":
+        return stemlab_reddit_search_plan_text()
+    if command == "stemlab source backed finding":
+        return stemlab_source_backed_finding_text()
     return stemlab_overview_text()
 
 
@@ -1773,6 +1871,12 @@ async def slack_events(request: Request):
 
         if lowered in MODE_RECOMMENDATION_MESSAGES:
             response_text = mode_recommendation_text()
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in RESEARCH_MESSAGES:
+            response_text = research_command_text(lowered)
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}

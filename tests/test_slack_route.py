@@ -215,6 +215,12 @@ def test_help_command(monkeypatch):
     assert "* stemlab technical research" in captured["text"]
     assert "* stemlab what not to build" in captured["text"]
     assert "* stemlab research questions" in captured["text"]
+    assert "Research:" in captured["text"]
+    assert "* research" in captured["text"]
+    assert "* research status" in captured["text"]
+    assert "* stemlab web research" in captured["text"]
+    assert "* stemlab reddit search plan" in captured["text"]
+    assert "* stemlab source backed finding" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -536,6 +542,68 @@ def test_stemlab_research_commands_return_expected_labels(monkeypatch):
         assert captured["responses"][-1].startswith(label)
 
     assert len(captured["responses"]) == len(commands_and_labels)
+
+
+def test_research_commands_return_expected_labels(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    commands_and_labels = [
+        ("research", "Bishop research layer:"),
+        ("research status", "Bishop research status:"),
+        ("stemlab web research", "StemLab web research workflow:"),
+        ("stemlab reddit search plan", "StemLab Reddit search plan:"),
+        ("stemlab source backed finding", "StemLab source-backed finding format:"),
+    ]
+
+    for index, (command, label) in enumerate(commands_and_labels, start=1):
+        response = client.post(
+            "/slack/events",
+            json=make_event(command, event_id=f"evt-research-v1-{index}"),
+        )
+        assert response.status_code == 200
+        assert captured["responses"][-1].startswith(label)
+
+    assert "Live web/MCP execution is not wired yet." in captured["responses"][1]
+    assert "This is a workflow unless live search tools are wired." in captured["responses"][2]
+    assert "r/ableton" in captured["responses"][3]
+    assert "Findings should only be saved when a source is available." in captured["responses"][4]
+    assert len(captured["responses"]) == len(commands_and_labels)
+
+
+def test_research_command_does_not_trigger_memory_capture(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("stemlab source backed finding", event_id="evt-research-no-memory"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("StemLab source-backed finding format:")
+    assert captured["memories"] == []
 
 
 def test_stemlab_research_command_does_not_trigger_memory_capture(monkeypatch):
