@@ -1,13 +1,14 @@
 import sqlite3
 
 from app.config import settings
+from app.services.database_path import DEFAULT_DB_PATH, get_db_path
 from app.services.provider_service import VALID_PROVIDERS, validate_provider_config
 
-DB_PATH = "app/data/bishop_memory.db"
+DB_PATH = DEFAULT_DB_PATH
 
 
 def init_provider_table():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path(DB_PATH))
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS provider_state (
@@ -20,7 +21,7 @@ def init_provider_table():
 
 
 def get_provider_override():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path(DB_PATH))
     cursor = conn.cursor()
     cursor.execute("SELECT provider FROM provider_state WHERE id = 1")
     row = cursor.fetchone()
@@ -34,7 +35,7 @@ def set_provider_override(provider: str):
     if normalized not in VALID_PROVIDERS:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path(DB_PATH))
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO provider_state (id, provider)
@@ -46,7 +47,7 @@ def set_provider_override(provider: str):
 
 
 def clear_provider_override():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path(DB_PATH))
     cursor = conn.cursor()
     cursor.execute("DELETE FROM provider_state WHERE id = 1")
     conn.commit()

@@ -1,14 +1,14 @@
 import sqlite3
-from pathlib import Path
 
-DB_PATH = Path("app/data/bishop_memory.db")
+from app.services.database_path import DEFAULT_DB_PATH, get_db_path
+
+DB_PATH = DEFAULT_DB_PATH
 
 VALID_MODES = {"default", "work", "personal", "website", "cmo", "stemlab", "product"}
 
 
 def init_mode_table() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(get_db_path(DB_PATH)) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS user_modes (
@@ -22,7 +22,7 @@ def init_mode_table() -> None:
 
 
 def get_mode(user_id: str) -> str:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(get_db_path(DB_PATH)) as conn:
         cursor = conn.execute(
             "SELECT mode FROM user_modes WHERE user_id = ?",
             (user_id,)
@@ -39,7 +39,7 @@ def set_mode(user_id: str, mode: str) -> str:
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode: {mode}")
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(get_db_path(DB_PATH)) as conn:
         conn.execute(
             """
             INSERT INTO user_modes (user_id, mode, updated_at)

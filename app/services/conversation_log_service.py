@@ -1,18 +1,16 @@
 import re
 import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
+from app.services.database_path import DEFAULT_DB_PATH, get_db_path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-DB_PATH = DATA_DIR / "bishop_memory.db"
+
+DB_PATH = DEFAULT_DB_PATH
 
 
 def get_connection() -> sqlite3.Connection:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
