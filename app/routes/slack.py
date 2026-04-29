@@ -103,6 +103,13 @@ STEMLAB_PROJECT_MESSAGES = {
     "stemlab customer",
     "stemlab validation",
     "stemlab assumptions",
+    "stemlab research",
+    "stemlab ableton research",
+    "stemlab reddit research",
+    "stemlab competitor research",
+    "stemlab technical research",
+    "stemlab what not to build",
+    "stemlab research questions",
 }
 
 STEMLAB_MEMORY_LANE = "stemlab"
@@ -415,6 +422,13 @@ def help_text() -> str:
         "* stemlab customer\n"
         "* stemlab validation\n"
         "* stemlab assumptions\n\n"
+        "* stemlab research\n"
+        "* stemlab ableton research\n"
+        "* stemlab reddit research\n"
+        "* stemlab competitor research\n"
+        "* stemlab technical research\n"
+        "* stemlab what not to build\n"
+        "* stemlab research questions\n\n"
         "* show stemlab memory\n"
         "* stemlab memory\n"
         "* stemlab decisions\n"
@@ -583,6 +597,92 @@ def stemlab_assumptions_text() -> str:
     )
 
 
+def stemlab_research_text() -> str:
+    return (
+        "StemLab research plan:\n"
+        "* Core question: determine which producer workflow problem is painful enough to justify StemLab.\n"
+        "* Evidence sources: interviews, observed sessions, search results, forums, product pages, docs, and reviews.\n"
+        "* User workflow research: study how producers move from idea, sample, or track to Ableton-ready material.\n"
+        "* Competitor research: compare what existing tools promise, where users complain, and what they omit.\n"
+        "* Technical research: test feasibility for separation, BPM/key, sections, loop points, MIDI, and packaging.\n"
+        "* Decision output: summarize evidence, unknowns, risks, and the next validation step before building."
+    )
+
+
+def stemlab_ableton_research_text() -> str:
+    return (
+        "StemLab Ableton research plan:\n"
+        "* Session View workflow: learn how producers audition stems, loops, scenes, and clips.\n"
+        "* Arrangement View workflow: map how stems become intros, builds, drops, breakdowns, and outros.\n"
+        "* Warping and BPM: identify what makes imported audio align quickly and reliably.\n"
+        "* Key and labeling: define naming, key, and metadata expectations for fast reuse.\n"
+        "* Stem/clip organization: inspect folder, track, scene, and clip conventions producers prefer.\n"
+        "* What Ableton-ready must mean: convert findings into an export checklist, not a vague claim."
+    )
+
+
+def stemlab_reddit_research_text() -> str:
+    return (
+        "StemLab Reddit/forum research plan:\n"
+        "* Communities to search: r/ableton, r/edmproduction, r/musicproduction, r/DJs, r/Beatmatch, and r/WeAreTheMusicMakers.\n"
+        "* Pain-point queries: find complaints about stems, remix prep, sample cleanup, labeling, BPM, and key.\n"
+        "* Competitor complaint queries: search for Moises, LALAL.AI, RipX, Serato Stems, rekordbox stems, and DJ.Studio issues.\n"
+        "* Ableton workflow queries: look for import, warping, Session View, Arrangement View, racks, clips, and scenes.\n"
+        "* Quality/artifact queries: collect language users use for bleed, artifacts, phasing, timing, and unusable stems.\n"
+        "* Synthesis method: tag posts by pain, workflow, tool, severity, workaround, and evidence quality."
+    )
+
+
+def stemlab_competitor_research_text() -> str:
+    return (
+        "StemLab competitor research plan:\n"
+        "* Stem separation tools: compare Moises, LALAL.AI, and RipX on output quality, controls, and export workflow.\n"
+        "* AI music generators: review Suno and Udio for creation strengths and DAW-readiness gaps.\n"
+        "* Sample-pack workflows: study Splice and Loopcloud for browsing, metadata, key, BPM, and reuse patterns.\n"
+        "* DJ stem tools: inspect Serato Stems, rekordbox stems, and DJ.Studio for performance and remix prep use cases.\n"
+        "* Ableton ecosystem: look at packs, templates, Max devices, naming conventions, and import expectations.\n"
+        "* Gap to look for: a focused Ableton-ready stem workflow that existing tools do not solve end to end."
+    )
+
+
+def stemlab_technical_research_text() -> str:
+    return (
+        "StemLab technical research plan:\n"
+        "* Source separation: compare available APIs/models and test artifacts on dense EDM, vocals, drums, bass, and synths.\n"
+        "* BPM/key detection: check accuracy, confidence scoring, edge cases, and correction workflows.\n"
+        "* Section detection: evaluate whether intro, build, drop, breakdown, and outro labels can be useful enough.\n"
+        "* Loop point detection: test bar alignment, transient handling, tails, and seamless loop exports.\n"
+        "* MIDI extraction: assess where MIDI is useful, unreliable, or should be omitted from v0.\n"
+        "* Export packaging: define folder structure, filenames, metadata, previews, dry/wet versions, and Ableton import behavior."
+    )
+
+
+def stemlab_what_not_to_build_text() -> str:
+    return (
+        "StemLab what-not-to-build list:\n"
+        "* Generic Suno clone: broad full-song generation is not the wedge.\n"
+        "* Full DAW replacement: producers already have Ableton and need better input material.\n"
+        "* Full Ableton project export too early: validate organized stems before promising complete projects.\n"
+        "* Broad social platform: sharing and feeds distract from workflow proof.\n"
+        "* Too many genres: start with one production lane where quality expectations are clear.\n"
+        "* Perfect-stems-from-any-song promise: dense mixes and rights issues make this unsafe as a v0 claim.\n"
+        "* Model training before validation: prove the workflow manually or with existing tools first."
+    )
+
+
+def stemlab_research_questions_text() -> str:
+    return (
+        "StemLab research questions:\n"
+        "* User questions: who has the pain often enough to pay or switch behavior?\n"
+        "* Workflow questions: where do producers lose time between idea, audio, stems, and Ableton session?\n"
+        "* Quality questions: what artifacts, labels, timing, or missing metadata make output unusable?\n"
+        "* Market questions: which alternatives are used today, and why are they insufficient?\n"
+        "* Technical questions: which parts can be reliable with existing tools, and which need invention?\n"
+        "* Legal/licensing questions: what uploads, outputs, and commercial uses create risk?\n"
+        "* Validation questions: what observed behavior proves users would reuse StemLab output?"
+    )
+
+
 def stemlab_project_text(command: str) -> str:
     if command == "stemlab plan":
         return stemlab_plan_text()
@@ -602,6 +702,20 @@ def stemlab_project_text(command: str) -> str:
         return stemlab_validation_text()
     if command == "stemlab assumptions":
         return stemlab_assumptions_text()
+    if command == "stemlab research":
+        return stemlab_research_text()
+    if command == "stemlab ableton research":
+        return stemlab_ableton_research_text()
+    if command == "stemlab reddit research":
+        return stemlab_reddit_research_text()
+    if command == "stemlab competitor research":
+        return stemlab_competitor_research_text()
+    if command == "stemlab technical research":
+        return stemlab_technical_research_text()
+    if command == "stemlab what not to build":
+        return stemlab_what_not_to_build_text()
+    if command == "stemlab research questions":
+        return stemlab_research_questions_text()
     return stemlab_overview_text()
 
 

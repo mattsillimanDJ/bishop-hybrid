@@ -208,6 +208,13 @@ def test_help_command(monkeypatch):
     assert "* stemlab customer" in captured["text"]
     assert "* stemlab validation" in captured["text"]
     assert "* stemlab assumptions" in captured["text"]
+    assert "* stemlab research" in captured["text"]
+    assert "* stemlab ableton research" in captured["text"]
+    assert "* stemlab reddit research" in captured["text"]
+    assert "* stemlab competitor research" in captured["text"]
+    assert "* stemlab technical research" in captured["text"]
+    assert "* stemlab what not to build" in captured["text"]
+    assert "* stemlab research questions" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -495,6 +502,66 @@ def test_stemlab_strategy_command_does_not_trigger_memory_capture(monkeypatch):
 
     assert response.status_code == 200
     assert captured["text"].startswith("StemLab founder lens:")
+    assert captured["memories"] == []
+
+
+def test_stemlab_research_commands_return_expected_labels(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    commands_and_labels = [
+        ("stemlab research", "StemLab research plan:"),
+        ("stemlab ableton research", "StemLab Ableton research plan:"),
+        ("stemlab reddit research", "StemLab Reddit/forum research plan:"),
+        ("stemlab competitor research", "StemLab competitor research plan:"),
+        ("stemlab technical research", "StemLab technical research plan:"),
+        ("stemlab what not to build", "StemLab what-not-to-build list:"),
+        ("stemlab research questions", "StemLab research questions:"),
+    ]
+
+    for index, (command, label) in enumerate(commands_and_labels, start=1):
+        response = client.post(
+            "/slack/events",
+            json=make_event(command, event_id=f"evt-stemlab-research-{index}"),
+        )
+        assert response.status_code == 200
+        assert captured["responses"][-1].startswith(label)
+
+    assert len(captured["responses"]) == len(commands_and_labels)
+
+
+def test_stemlab_research_command_does_not_trigger_memory_capture(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("stemlab research", event_id="evt-stemlab-research-no-memory"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("StemLab research plan:")
     assert captured["memories"] == []
 
 
