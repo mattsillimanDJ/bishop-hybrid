@@ -707,6 +707,9 @@ def test_web_research_command_formats_mocked_available_result(monkeypatch):
             ],
             "findings": ["Source A: Source-backed snippet."],
             "confidence": "medium",
+            "repeated_patterns": ["No repeated deterministic theme appeared across at least 2 sources."],
+            "evidence_quality": ["single-source claims need verification"],
+            "suggested_next_queries": ["best stem separation APIs official documentation"],
             "open_questions": ["Which API performs best on dense EDM?"],
         }
 
@@ -725,6 +728,8 @@ def test_web_research_command_formats_mocked_available_result(monkeypatch):
     assert "Query: best stem separation APIs" in captured["text"]
     assert "Source A: Source-backed snippet." in captured["text"]
     assert "Source A - https://example.com/source-a" in captured["text"]
+    assert "Repeated patterns:" in captured["text"]
+    assert "Suggested next queries:" in captured["text"]
     assert "Confidence: medium" in captured["text"]
 
 
@@ -776,6 +781,10 @@ def test_stemlab_live_web_research_command_formats_mocked_available_result(monke
             ],
             "findings": ["Producer workflow source: Workflow evidence."],
             "confidence": "medium",
+            "repeated_patterns": ["No repeated deterministic theme appeared across at least 2 sources."],
+            "evidence_quality": ["single-source claims need verification"],
+            "weak_signals": ["No obvious weak signals from deterministic source checks."],
+            "suggested_next_queries": ["AI stems Ableton workflow reddit complaints"],
             "product_implications": ["Focus on clean labels and Ableton-ready exports."],
             "open_questions": ["How often do producers reuse generated stems?"],
         }
@@ -795,8 +804,10 @@ def test_stemlab_live_web_research_command_formats_mocked_available_result(monke
 
     assert response.status_code == 200
     assert captured["text"].startswith("StemLab live web research result:")
+    assert "Weak signals:" in captured["text"]
     assert "Product implications:" in captured["text"]
     assert "What not to build:" in captured["text"]
+    assert "Suggested next queries:" in captured["text"]
     assert "Producer workflow source - https://example.com/workflow" in captured["text"]
 
 

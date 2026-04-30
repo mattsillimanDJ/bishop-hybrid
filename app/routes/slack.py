@@ -870,11 +870,35 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
         if isinstance(result.get("open_questions"), list)
         else []
     )
+    repeated_patterns = (
+        result.get("repeated_patterns")
+        if isinstance(result.get("repeated_patterns"), list)
+        else []
+    )
+    evidence_quality = (
+        result.get("evidence_quality")
+        if isinstance(result.get("evidence_quality"), list)
+        else []
+    )
+    weak_signals = (
+        result.get("weak_signals")
+        if isinstance(result.get("weak_signals"), list)
+        else []
+    )
+    suggested_next_queries = (
+        result.get("suggested_next_queries")
+        if isinstance(result.get("suggested_next_queries"), list)
+        else []
+    )
 
     if stemlab:
         sections = [
             "StemLab live web research result:",
             f"Query: {query}",
+            "Sources checked:\n" + "\n".join(format_sources_for_slack(sources)),
+            format_list_section("Repeated patterns:", repeated_patterns),
+            format_list_section("Evidence quality:", evidence_quality),
+            format_list_section("Weak signals:", weak_signals),
             format_list_section("Findings:", findings, escape_external=True),
             format_list_section("Product implications:", implications),
             format_list_section(
@@ -882,7 +906,7 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
                 ["Do not build or claim anything based on unsourced findings or single-source weak evidence."],
             ),
             format_list_section("Open questions:", open_questions),
-            "Sources checked:\n" + "\n".join(format_sources_for_slack(sources)),
+            format_list_section("Suggested next queries:", suggested_next_queries),
             f"Suggested memory item: {clean_string(result.get('suggested_memory_item'), 'none yet')}",
         ]
         return "\n".join(sections)
@@ -891,10 +915,13 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
         "Live web research result:",
         f"Query: {query}",
         "Sources checked:\n" + "\n".join(format_sources_for_slack(sources)),
+        format_list_section("Repeated patterns:", repeated_patterns),
+        format_list_section("Evidence quality:", evidence_quality),
         format_list_section("Findings:", findings, escape_external=True),
         f"Confidence: {clean_string(result.get('confidence'), 'unknown')}",
         format_list_section("Product implications:", implications),
         format_list_section("Open questions:", open_questions),
+        format_list_section("Suggested next queries:", suggested_next_queries),
         f"Suggested memory item: {clean_string(result.get('suggested_memory_item'), 'none yet')}",
     ]
     return "\n".join(sections)

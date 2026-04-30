@@ -1,3 +1,5 @@
+import pytest
+
 from app.services import research_service
 
 
@@ -56,6 +58,159 @@ def test_research_service_available_with_mocked_provider(monkeypatch):
     assert "Producers care about clean labels" in result["findings"][0]
     assert result["confidence"] == "medium"
     assert result["suggested_memory_item"]
+
+
+def test_research_service_builds_repeated_speed_pattern():
+    result = research_service.build_research_result(
+        "stem separation speed",
+        [
+            {
+                "title": "Fast stem processing",
+                "url": "https://example.com/one",
+                "snippet": "This tool is fast for short clips.",
+            },
+            {
+                "title": "Slow export report",
+                "url": "https://example.com/two",
+                "snippet": "Processing time can be slow on large songs.",
+            },
+        ],
+        "tavily",
+    )
+
+    assert "Multiple sources mention speed or processing time." in result["repeated_patterns"]
+
+
+def test_research_service_zero_sources_evidence_quality_is_not_single_source():
+    result = research_service.build_research_result(
+        "narrow query with no results",
+        [],
+        "tavily",
+    )
+
+    assert (
+        "no sources returned; retry with a broader query or different source target"
+        in result["evidence_quality"]
+    )
+    assert "single-source claims need verification" not in result["evidence_quality"]
+
+
+def test_research_service_one_source_evidence_quality_needs_verification():
+    result = research_service.build_research_result(
+        "single source query",
+        [
+            {
+                "title": "Only source",
+                "url": "https://example.com/source",
+                "snippet": "One source-backed snippet.",
+            }
+        ],
+        "tavily",
+    )
+
+    assert "single-source claims need verification" in result["evidence_quality"]
+
+
+def test_research_service_identifies_official_ableton_source():
+    result = research_service.build_research_result(
+        "Ableton warp help",
+        [
+            {
+                "title": "Ableton Help",
+                "url": "https://help.ableton.com/hc/en-us/articles/example",
+                "snippet": "Official help article.",
+            }
+        ],
+        "tavily",
+    )
+
+    assert "primary/official source present" in result["evidence_quality"]
+    assert "official docs/help: 1 source" in result["source_types"]
+
+
+def test_research_service_identifies_reddit_community_source_type():
+    result = research_service.build_research_result(
+        "StemLab complaints",
+        [
+            {
+                "title": "Reddit discussion",
+                "url": "https://www.reddit.com/r/ableton/comments/example",
+                "snippet": "Users discuss reliability issues.",
+            }
+        ],
+        "tavily",
+    )
+
+    assert "community discussion: 1 source" in result["source_types"]
+    assert "forum/user report present" in result["evidence_quality"]
+
+
+def test_research_service_identifies_x_dot_com_as_social_forum():
+    source = {
+        "title": "X post",
+        "url": "https://x.com/example",
+        "snippet": "A social post.",
+    }
+
+    assert research_service.classify_source(source) == "social/forum"
+
+
+def test_research_service_does_not_identify_linux_dot_com_as_social_forum():
+    source = {
+        "title": "Linux article",
+        "url": "https://linux.com/example",
+        "snippet": "A normal source.",
+    }
+
+    assert research_service.classify_source(source) != "social/forum"
+
+
+def test_research_service_identifies_twitter_dot_com_as_social_forum():
+    source = {
+        "title": "Twitter post",
+        "url": "https://twitter.com/example",
+        "snippet": "A social post.",
+    }
+
+    assert research_service.classify_source(source) == "social/forum"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected_type"),
+    [
+        ("https://reddit.com/r/ableton", "community discussion"),
+        ("https://old.reddit.com/r/ableton", "community discussion"),
+        ("https://youtube.com/watch?v=abc", "video/tutorial"),
+        ("https://music.youtube.com/watch?v=abc", "video/tutorial"),
+        ("https://youtu.be/abc", "video/tutorial"),
+    ],
+)
+def test_research_service_known_domains_use_boundary_matching(url, expected_type):
+    source = {
+        "title": "Known source",
+        "url": url,
+        "snippet": "A source snippet.",
+    }
+
+    assert research_service.classify_source(source) == expected_type
+
+
+@pytest.mark.parametrize(
+    ("url", "unexpected_type"),
+    [
+        ("https://notreddit.com/example", "community discussion"),
+        ("https://youtube.com.example.org/video", "video/tutorial"),
+        ("https://fake-youtu.be.example.org/abc", "video/tutorial"),
+    ],
+)
+def test_research_service_known_domain_lookalikes_do_not_match(url, unexpected_type):
+    source = {
+        "title": "Lookalike source",
+        "url": url,
+        "snippet": "A source snippet.",
+    }
+
+    assert research_service.classify_source(source) != unexpected_type
 
 
 def test_tavily_request_uses_bearer_header_without_api_key_body(monkeypatch):
