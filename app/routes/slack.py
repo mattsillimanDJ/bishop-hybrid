@@ -939,8 +939,6 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
             format_list_section("Suggested next queries:", suggested_next_queries, max_items=3),
             f"Suggested memory item: {clean_string(result.get('suggested_memory_item'), 'none yet')}",
         ]
-        if sources:
-            sections.append("Note: Slack may preview some source links.")
         return "\n".join(sections)
 
     sections = [
@@ -956,8 +954,6 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
         format_list_section("Suggested next queries:", suggested_next_queries, max_items=3),
         f"Suggested memory item: {clean_string(result.get('suggested_memory_item'), 'none yet')}",
     ]
-    if sources:
-        sections.append("Note: Slack may preview some source links.")
     return "\n".join(sections)
 
 

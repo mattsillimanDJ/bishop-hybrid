@@ -852,7 +852,7 @@ def test_web_research_response_truncates_and_limits_slack_output():
     assert "..." in source_line
     assert long_title not in text
     assert intact_url in text
-    assert "Note: Slack may preview some source links." in text
+    assert "Note: Slack may preview some source links." not in text
 
 
 def test_web_research_response_unavailable_output_unchanged():
