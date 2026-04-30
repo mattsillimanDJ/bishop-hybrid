@@ -731,6 +731,9 @@ def test_web_research_command_formats_mocked_available_result(monkeypatch):
     assert "Repeated patterns:" in captured["text"]
     assert "Suggested next queries:" in captured["text"]
     assert "Confidence: medium" in captured["text"]
+    assert captured["text"].index("Repeated patterns:") < captured["text"].index("Sources checked:")
+    assert captured["text"].index("Evidence quality:") < captured["text"].index("Confidence: medium")
+    assert captured["text"].index("Confidence: medium") < captured["text"].index("Product implications:")
 
 
 def test_web_research_response_escapes_external_slack_markup():
@@ -756,6 +759,68 @@ def test_web_research_response_escapes_external_slack_markup():
     assert "&lt;!channel&gt;" in text
     assert "&lt;@U123&gt;" in text
     assert "&amp;" in text
+
+
+def test_web_research_response_truncates_and_limits_slack_output():
+    long_finding = "Long source: " + ("dense provider snippet " * 20)
+    long_title = "Very long source title " + ("with extra words " * 10)
+    intact_url = "https://example.com/source-with-intact-url"
+
+    text = slack_route.format_web_research_response(
+        {
+            "available": True,
+            "query": "compact output",
+            "sources": [{"title": long_title, "url": intact_url, "snippet": "ignored"}],
+            "findings": [
+                long_finding,
+                "Finding two",
+                "Finding three",
+                "Finding four should be hidden",
+            ],
+            "repeated_patterns": ["Pattern one", "Pattern two"],
+            "evidence_quality": ["Quality one"],
+            "product_implications": ["Implication one"],
+            "open_questions": ["Question one?", "Question two?", "Question three should be hidden?"],
+            "suggested_next_queries": ["Query one", "Query two", "Query three", "Query four hidden"],
+        }
+    )
+
+    finding_line = next(line for line in text.splitlines() if line.startswith("* Long source:"))
+    assert finding_line.endswith("...")
+    assert len(finding_line) <= 224
+    assert long_finding not in text
+    assert "Finding four should be hidden" not in text
+    assert "Question one?" in text
+    assert "Question two?" in text
+    assert "Question three should be hidden?" not in text
+    assert "Query one" in text
+    assert "Query two" in text
+    assert "Query three" in text
+    assert "Query four hidden" not in text
+    source_line = next(line for line in text.splitlines() if intact_url in line)
+    assert source_line.endswith(intact_url)
+    assert "..." in source_line
+    assert long_title not in text
+    assert intact_url in text
+    assert "Note: Slack may preview some source links." in text
+
+
+def test_web_research_response_unavailable_output_unchanged():
+    text = slack_route.format_web_research_response(
+        {
+            "available": False,
+            "query": "missing provider",
+            "missing_configuration": "RESEARCH_PROVIDER is not configured",
+            "next_setup_step": "Set RESEARCH_PROVIDER and RESEARCH_API_KEY.",
+        }
+    )
+
+    assert text == (
+        "Live web research unavailable:\n"
+        "* requested query: missing provider\n"
+        "* missing configuration: RESEARCH_PROVIDER is not configured\n"
+        "* next setup step: Set RESEARCH_PROVIDER and RESEARCH_API_KEY."
+    )
 
 
 def test_stemlab_live_web_research_command_formats_mocked_available_result(monkeypatch):
@@ -809,6 +874,7 @@ def test_stemlab_live_web_research_command_formats_mocked_available_result(monke
     assert "What not to build:" in captured["text"]
     assert "Suggested next queries:" in captured["text"]
     assert "Producer workflow source - https://example.com/workflow" in captured["text"]
+    assert captured["text"].index("Weak signals:") < captured["text"].index("Findings:")
 
 
 def test_research_command_does_not_trigger_memory_capture(monkeypatch):

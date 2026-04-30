@@ -810,13 +810,20 @@ def escape_slack_external_text(value: object) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def format_sources_for_slack(sources: list[dict]) -> list[str]:
+def truncate_for_slack(text: object, max_chars: int = 220) -> str:
+    clean_text = re.sub(r"\s+", " ", clean_string(text)).strip()
+    if not clean_text or len(clean_text) <= max_chars:
+        return clean_text
+    return clean_text[: max_chars - 3].rstrip() + "..."
+
+
+def format_sources_for_slack(sources: list[dict], *, max_sources: int = 5) -> list[str]:
     if not sources:
         return ["* none"]
 
     lines = []
-    for source in sources:
-        title = escape_slack_external_text(source.get("title")) or "Untitled source"
+    for source in sources[:max_sources]:
+        title = escape_slack_external_text(truncate_for_slack(source.get("title"), 100)) or "Untitled source"
         url = escape_slack_external_text(source.get("url"))
         if url:
             lines.append(f"* {title} - {url}")
@@ -825,15 +832,27 @@ def format_sources_for_slack(sources: list[dict]) -> list[str]:
     return lines
 
 
-def format_list_section(title: str, items: list[str], *, escape_external: bool = False) -> str:
+def format_list_section(
+    title: str,
+    items: list[str],
+    *,
+    escape_external: bool = False,
+    max_items: int | None = None,
+    max_chars: int | None = None,
+) -> str:
+    limited_items = items[:max_items] if max_items is not None else items
     if escape_external:
         safe_items = [
-            escape_slack_external_text(item)
-            for item in items
-            if escape_slack_external_text(item)
+            escape_slack_external_text(truncated)
+            for item in limited_items
+            if (truncated := truncate_for_slack(item, max_chars or 220))
         ]
     else:
-        safe_items = [clean_string(item) for item in items if clean_string(item)]
+        safe_items = [
+            truncated
+            for item in limited_items
+            if (truncated := truncate_for_slack(item, max_chars or 220))
+        ]
     if not safe_items:
         safe_items = ["none"]
     return title + "\n" + "\n".join(f"* {item}" for item in safe_items)
@@ -895,35 +914,39 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
         sections = [
             "StemLab live web research result:",
             f"Query: {query}",
-            "Sources checked:\n" + "\n".join(format_sources_for_slack(sources)),
-            format_list_section("Repeated patterns:", repeated_patterns),
-            format_list_section("Evidence quality:", evidence_quality),
-            format_list_section("Weak signals:", weak_signals),
-            format_list_section("Findings:", findings, escape_external=True),
+            format_list_section("Repeated patterns:", repeated_patterns, max_items=4),
+            format_list_section("Evidence quality:", evidence_quality, max_items=4),
+            format_list_section("Weak signals:", weak_signals, max_items=3),
             format_list_section("Product implications:", implications),
             format_list_section(
                 "What not to build:",
                 ["Do not build or claim anything based on unsourced findings or single-source weak evidence."],
             ),
-            format_list_section("Open questions:", open_questions),
-            format_list_section("Suggested next queries:", suggested_next_queries),
+            format_list_section("Findings:", findings, escape_external=True, max_items=4, max_chars=220),
+            "Sources checked:\n" + "\n".join(format_sources_for_slack(sources, max_sources=5)),
+            format_list_section("Open questions:", open_questions, max_items=2),
+            format_list_section("Suggested next queries:", suggested_next_queries, max_items=3),
             f"Suggested memory item: {clean_string(result.get('suggested_memory_item'), 'none yet')}",
         ]
+        if sources:
+            sections.append("Note: Slack may preview some source links.")
         return "\n".join(sections)
 
     sections = [
         "Live web research result:",
         f"Query: {query}",
-        "Sources checked:\n" + "\n".join(format_sources_for_slack(sources)),
-        format_list_section("Repeated patterns:", repeated_patterns),
-        format_list_section("Evidence quality:", evidence_quality),
-        format_list_section("Findings:", findings, escape_external=True),
+        format_list_section("Repeated patterns:", repeated_patterns, max_items=4),
+        format_list_section("Evidence quality:", evidence_quality, max_items=4),
         f"Confidence: {clean_string(result.get('confidence'), 'unknown')}",
         format_list_section("Product implications:", implications),
-        format_list_section("Open questions:", open_questions),
-        format_list_section("Suggested next queries:", suggested_next_queries),
+        format_list_section("Findings:", findings, escape_external=True, max_items=3, max_chars=220),
+        "Sources checked:\n" + "\n".join(format_sources_for_slack(sources, max_sources=5)),
+        format_list_section("Open questions:", open_questions, max_items=2),
+        format_list_section("Suggested next queries:", suggested_next_queries, max_items=3),
         f"Suggested memory item: {clean_string(result.get('suggested_memory_item'), 'none yet')}",
     ]
+    if sources:
+        sections.append("Note: Slack may preview some source links.")
     return "\n".join(sections)
 
 
