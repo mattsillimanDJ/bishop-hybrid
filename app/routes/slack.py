@@ -115,6 +115,7 @@ STEMLAB_PROJECT_MESSAGES = {
     "stemlab technical research",
     "stemlab what not to build",
     "stemlab research questions",
+    "stemlab prototype plan",
     "stemlab web research",
     "stemlab reddit search plan",
     "stemlab source backed finding",
@@ -452,7 +453,8 @@ def help_text() -> str:
         "* stemlab competitor research\n"
         "* stemlab technical research\n"
         "* stemlab what not to build\n"
-        "* stemlab research questions\n\n"
+        "* stemlab research questions\n"
+        "* stemlab prototype plan\n\n"
         "Research:\n"
         "* research\n"
         "* research status\n"
@@ -798,6 +800,44 @@ def stemlab_source_backed_finding_text() -> str:
     )
 
 
+def stemlab_prototype_plan_text() -> str:
+    return (
+        "StemLab prototype plan\n\n"
+        "Prototype goal:\n"
+        "Build a simple workflow that helps producers turn existing audio into usable EDM production material.\n\n"
+        "User problem:\n"
+        "Producers can generate or extract audio, but they still struggle to get clean, organized, "
+        "producer-ready stems and ideas into a real DAW workflow.\n\n"
+        "MVP workflow:\n"
+        "1. Upload or provide an audio file.\n"
+        "2. Identify basic track info such as duration, BPM target, and musical use case.\n"
+        "3. Run or prepare stem separation.\n"
+        "4. Return separated stems or stem workflow notes.\n"
+        "5. Flag quality issues such as artifacts, bleed, timing problems, or weak low end.\n"
+        "6. Suggest how to use the material in Ableton.\n\n"
+        "Technical approach:\n"
+        "- Start local and simple.\n"
+        "- Backend: Python/FastAPI.\n"
+        "- Prototype separation engine: Demucs or another local/open-source stem separation option.\n"
+        "- Output: stems, notes, and a simple quality checklist.\n"
+        "- Frontend can wait until the backend flow proves useful.\n\n"
+        "What to test this week:\n"
+        "1. Can we process one full track without crashing?\n"
+        "2. Are the stems usable enough for remixing or sampling?\n"
+        "3. Which stems are consistently weakest?\n"
+        "4. What metadata does a producer actually need?\n"
+        "5. How long does processing take?\n\n"
+        "Open questions:\n"
+        "1. Should StemLab start as a local workflow tool or web app?\n"
+        "2. Should the first prototype focus on separation, arrangement help, or producer notes?\n"
+        "3. What file formats should be supported first?\n"
+        "4. Do we need Ableton export support in v0.1 or later?\n"
+        "5. What quality threshold makes a stem \"usable\"?\n\n"
+        "Next Codex task:\n"
+        "Create a separate StemLab prototype plan document or repo scaffold only after we confirm the MVP workflow."
+    )
+
+
 def stemlab_source_backed_finding_usage_text() -> str:
     return (
         "To save a StemLab source-backed finding, use:\n"
@@ -1019,6 +1059,8 @@ def stemlab_project_text(command: str) -> str:
         return stemlab_what_not_to_build_text()
     if command == "stemlab research questions":
         return stemlab_research_questions_text()
+    if command == "stemlab prototype plan":
+        return stemlab_prototype_plan_text()
     if command == "stemlab web research":
         return stemlab_web_research_text()
     if command == "stemlab reddit search plan":
