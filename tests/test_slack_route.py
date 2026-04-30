@@ -260,6 +260,7 @@ def test_help_command(monkeypatch):
     assert "* stemlab what not to build" in captured["text"]
     assert "* stemlab research questions" in captured["text"]
     assert "* stemlab prototype plan" in captured["text"]
+    assert "* stemlab codex task" in captured["text"]
     assert "Research:" in captured["text"]
     assert "* research" in captured["text"]
     assert "* research status" in captured["text"]
@@ -577,6 +578,7 @@ def test_stemlab_research_commands_return_expected_labels(monkeypatch):
         ("stemlab what not to build", "StemLab what-not-to-build list:"),
         ("stemlab research questions", "StemLab research questions:"),
         ("stemlab prototype plan", "StemLab prototype plan"),
+        ("stemlab codex task", "StemLab Codex task"),
     ]
 
     for index, (command, label) in enumerate(commands_and_labels, start=1):
@@ -644,6 +646,63 @@ def test_stemlab_prototype_plan_command_does_not_trigger_memory_capture(monkeypa
 
     assert response.status_code == 200
     assert captured["text"].startswith("StemLab prototype plan")
+    assert captured["memories"] == []
+
+
+def test_stemlab_codex_task_command_returns_expected_sections(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("StEmLaB CoDeX TaSk", event_id="evt-stemlab-codex-task"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("StemLab Codex task")
+    assert "Goal:" in captured["text"]
+    assert "Context:" in captured["text"]
+    assert "Build:" in captured["text"]
+    assert "MVP endpoint ideas:" in captured["text"]
+    assert "Do not build yet:" in captured["text"]
+    assert "Validation:" in captured["text"]
+    assert "First Codex instruction:" in captured["text"]
+    assert "stemlab_prototype" in captured["text"]
+    assert "Do not add Demucs yet." in captured["text"]
+
+
+def test_stemlab_codex_task_command_does_not_trigger_memory_capture(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("stemlab codex task", event_id="evt-stemlab-codex-task-no-memory"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("StemLab Codex task")
     assert captured["memories"] == []
 
 

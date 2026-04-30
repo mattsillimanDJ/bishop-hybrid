@@ -116,6 +116,7 @@ STEMLAB_PROJECT_MESSAGES = {
     "stemlab what not to build",
     "stemlab research questions",
     "stemlab prototype plan",
+    "stemlab codex task",
     "stemlab web research",
     "stemlab reddit search plan",
     "stemlab source backed finding",
@@ -454,7 +455,8 @@ def help_text() -> str:
         "* stemlab technical research\n"
         "* stemlab what not to build\n"
         "* stemlab research questions\n"
-        "* stemlab prototype plan\n\n"
+        "* stemlab prototype plan\n"
+        "* stemlab codex task\n\n"
         "Research:\n"
         "* research\n"
         "* research status\n"
@@ -838,6 +840,53 @@ def stemlab_prototype_plan_text() -> str:
     )
 
 
+def stemlab_codex_task_text() -> str:
+    return (
+        "StemLab Codex task\n\n"
+        "Goal:\n"
+        "Create the first separate StemLab prototype repo scaffold.\n\n"
+        "Context:\n"
+        "StemLab is an EDM-focused workflow tool for turning existing audio into usable production material. "
+        "The first prototype should validate separation-first workflow before attempting pure music generation.\n\n"
+        "Build:\n"
+        "- New repo/directory outside Bishop, suggested name: stemlab_prototype\n"
+        "- Python/FastAPI backend\n"
+        "- Health check endpoint\n"
+        "- Audio upload endpoint\n"
+        "- Local uploads folder\n"
+        "- Local outputs folder\n"
+        "- Placeholder stem separation service\n"
+        "- Placeholder metadata extraction service\n"
+        "- Simple quality checklist output\n"
+        "- README with setup and run instructions\n"
+        "- Basic pytest coverage\n\n"
+        "MVP endpoint ideas:\n"
+        "- GET /health\n"
+        "- POST /upload\n"
+        "- POST /analyze/{file_id}\n"
+        "- POST /separate/{file_id}\n\n"
+        "Do not build yet:\n"
+        "- Frontend\n"
+        "- User accounts\n"
+        "- Payment\n"
+        "- Production deployment\n"
+        "- Bishop integration\n"
+        "- Paid APIs\n"
+        "- Full Ableton export\n"
+        "- Full music generation\n\n"
+        "Validation:\n"
+        "- pytest passes\n"
+        "- app starts locally with uvicorn\n"
+        "- /health returns ok\n"
+        "- upload endpoint accepts a WAV or MP3\n"
+        "- placeholder analyze endpoint returns duration/file metadata if easy, otherwise a clear placeholder response\n"
+        "- placeholder separate endpoint returns a clear placeholder response and creates an output folder\n\n"
+        "First Codex instruction:\n"
+        "Create the repo scaffold only. Keep it simple, local, and testable. Do not add Demucs yet. "
+        "Use placeholders so we can validate the app shape before adding heavy audio dependencies."
+    )
+
+
 def stemlab_source_backed_finding_usage_text() -> str:
     return (
         "To save a StemLab source-backed finding, use:\n"
@@ -1061,6 +1110,8 @@ def stemlab_project_text(command: str) -> str:
         return stemlab_research_questions_text()
     if command == "stemlab prototype plan":
         return stemlab_prototype_plan_text()
+    if command == "stemlab codex task":
+        return stemlab_codex_task_text()
     if command == "stemlab web research":
         return stemlab_web_research_text()
     if command == "stemlab reddit search plan":
