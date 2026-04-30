@@ -26,6 +26,50 @@ def reset_route_state():
     slack_route.recent_message_fingerprints.clear()
 
 
+def test_post_message_preserves_default_slack_unfurl_behavior(monkeypatch):
+    captured = {}
+
+    class FakeSlackClient:
+        def chat_postMessage(self, **kwargs):
+            captured.update(kwargs)
+            return {"ts": "123"}
+
+    monkeypatch.setattr(slack_route.settings, "SLACK_BOT_TOKEN", "xoxb-test")
+    monkeypatch.setattr(slack_route, "slack_client", FakeSlackClient())
+
+    response = slack_route.post_message("C123", "hello https://example.com")
+
+    assert response == {"ok": True, "ts": "123"}
+    assert captured == {"channel": "C123", "text": "hello https://example.com"}
+
+
+def test_post_message_can_disable_slack_unfurls(monkeypatch):
+    captured = {}
+
+    class FakeSlackClient:
+        def chat_postMessage(self, **kwargs):
+            captured.update(kwargs)
+            return {"ts": "123"}
+
+    monkeypatch.setattr(slack_route.settings, "SLACK_BOT_TOKEN", "xoxb-test")
+    monkeypatch.setattr(slack_route, "slack_client", FakeSlackClient())
+
+    response = slack_route.post_message(
+        "C123",
+        "research https://example.com",
+        unfurl_links=False,
+        unfurl_media=False,
+    )
+
+    assert response == {"ok": True, "ts": "123"}
+    assert captured == {
+        "channel": "C123",
+        "text": "research https://example.com",
+        "unfurl_links": False,
+        "unfurl_media": False,
+    }
+
+
 def test_url_verification():
     response = client.post(
         "/slack/events",
@@ -616,8 +660,9 @@ def test_web_research_command_returns_unavailable_without_provider(monkeypatch):
     reset_route_state()
     captured = {}
 
-    def fake_post_message(channel, text):
+    def fake_post_message(channel, text, **kwargs):
         captured["text"] = text
+        captured["kwargs"] = kwargs
         return {"ok": True, "ts": "123"}
 
     def fake_run_web_research(query, stemlab=False):
@@ -645,14 +690,16 @@ def test_web_research_command_returns_unavailable_without_provider(monkeypatch):
     assert "requested query: AI stem separation tools" in captured["text"]
     assert "missing configuration: RESEARCH_PROVIDER is not configured" in captured["text"]
     assert "next setup step: Set RESEARCH_PROVIDER and RESEARCH_API_KEY." in captured["text"]
+    assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
 
 
 def test_stemlab_live_web_research_command_returns_unavailable_without_provider(monkeypatch):
     reset_route_state()
     captured = {}
 
-    def fake_post_message(channel, text):
+    def fake_post_message(channel, text, **kwargs):
         captured["text"] = text
+        captured["kwargs"] = kwargs
         return {"ok": True, "ts": "123"}
 
     def fake_run_web_research(query, stemlab=False):
@@ -682,14 +729,16 @@ def test_stemlab_live_web_research_command_returns_unavailable_without_provider(
     assert "requested query: Ableton AI stem export complaints" in captured["text"]
     assert "what Bishop would research:" in captured["text"]
     assert "missing configuration: RESEARCH_API_KEY is not set" in captured["text"]
+    assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
 
 
 def test_web_research_command_formats_mocked_available_result(monkeypatch):
     reset_route_state()
     captured = {}
 
-    def fake_post_message(channel, text):
+    def fake_post_message(channel, text, **kwargs):
         captured["text"] = text
+        captured["kwargs"] = kwargs
         return {"ok": True, "ts": "123"}
 
     def fake_run_web_research(query, stemlab=False):
@@ -734,6 +783,7 @@ def test_web_research_command_formats_mocked_available_result(monkeypatch):
     assert captured["text"].index("Repeated patterns:") < captured["text"].index("Sources checked:")
     assert captured["text"].index("Evidence quality:") < captured["text"].index("Confidence: medium")
     assert captured["text"].index("Confidence: medium") < captured["text"].index("Product implications:")
+    assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
 
 
 def test_web_research_response_escapes_external_slack_markup():
@@ -827,8 +877,9 @@ def test_stemlab_live_web_research_command_formats_mocked_available_result(monke
     reset_route_state()
     captured = {}
 
-    def fake_post_message(channel, text):
+    def fake_post_message(channel, text, **kwargs):
         captured["text"] = text
+        captured["kwargs"] = kwargs
         return {"ok": True, "ts": "123"}
 
     def fake_run_web_research(query, stemlab=False):
@@ -875,6 +926,7 @@ def test_stemlab_live_web_research_command_formats_mocked_available_result(monke
     assert "Suggested next queries:" in captured["text"]
     assert "Producer workflow source - https://example.com/workflow" in captured["text"]
     assert captured["text"].index("Weak signals:") < captured["text"].index("Findings:")
+    assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
 
 
 def test_research_command_does_not_trigger_memory_capture(monkeypatch):

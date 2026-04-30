@@ -268,13 +268,24 @@ EXACT_FORGET_MEMORY_PATTERNS = [
 ]
 
 
-def post_message(channel: str, text: str):
+def post_message(
+    channel: str,
+    text: str,
+    unfurl_links: bool | None = None,
+    unfurl_media: bool | None = None,
+):
     if not settings.SLACK_BOT_TOKEN:
         print("Missing SLACK_BOT_TOKEN")
         return {"ok": False, "error": "Missing SLACK_BOT_TOKEN"}
 
+    kwargs = {"channel": channel, "text": text}
+    if unfurl_links is not None:
+        kwargs["unfurl_links"] = unfurl_links
+    if unfurl_media is not None:
+        kwargs["unfurl_media"] = unfurl_media
+
     try:
-        response = slack_client.chat_postMessage(channel=channel, text=text)
+        response = slack_client.chat_postMessage(**kwargs)
         return {"ok": True, "ts": response.get("ts")}
     except SlackApiError as e:
         print(f"Slack API error: {e.response['error']}")
@@ -2060,7 +2071,7 @@ async def slack_events(request: Request):
         if stemlab_live_query:
             result = run_web_research(stemlab_live_query, stemlab=True)
             response_text = format_web_research_response(result, stemlab=True)
-            post_message(channel_id, response_text)
+            post_message(channel_id, response_text, unfurl_links=False, unfurl_media=False)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
@@ -2068,7 +2079,7 @@ async def slack_events(request: Request):
         if web_research_query:
             result = run_web_research(web_research_query)
             response_text = format_web_research_response(result)
-            post_message(channel_id, response_text)
+            post_message(channel_id, response_text, unfurl_links=False, unfurl_media=False)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
