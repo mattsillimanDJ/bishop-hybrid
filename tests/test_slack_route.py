@@ -1284,6 +1284,142 @@ def test_show_stemlab_memory_command(monkeypatch):
     assert "Risk: audio quality may not satisfy working producers." in captured["text"]
 
 
+def test_stemlab_save_source_backed_finding_saves_and_shows_in_stemlab_memory(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+    memory_store = []
+
+    def fake_post_message(channel, text):
+        captured["responses"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        memory_store.append(
+            {
+                "owner_user_id": kwargs["user_id"],
+                "lane": kwargs["lane"],
+                "visibility": kwargs["visibility"],
+                "category": kwargs["category"],
+                "content": kwargs["content"],
+            }
+        )
+        return {"id": len(memory_store), **kwargs}
+
+    def fake_get_memories(user_id, lane, limit=100):
+        return [
+            item
+            for item in memory_store
+            if item["owner_user_id"] == user_id and item["lane"] == lane
+        ][:limit]
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_memories", fake_get_memories)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    finding = "Ableton users report stem separation can be slow on longer files"
+    source = "https://www.reddit.com/r/ableton/comments/example"
+    save_response = client.post(
+        "/slack/events",
+        json=make_event(
+            f"stemlab save source backed finding {finding} source {source}",
+            event_id="evt-save-source-backed-finding",
+        ),
+    )
+
+    assert save_response.status_code == 200
+    assert len(memory_store) == 1
+    assert memory_store[0]["lane"] == "stemlab"
+    assert memory_store[0]["category"] == "StemLab Research Finding"
+    assert memory_store[0]["visibility"] == "private"
+    assert memory_store[0]["content"] == (
+        f"StemLab source-backed finding: {finding} Source: {source} Confidence: medium."
+    )
+    assert captured["responses"][-1] == (
+        "Saved StemLab source-backed finding.\n\n"
+        f"Finding:\n{finding}\n\n"
+        f"Source:\n{source}\n\n"
+        "Confidence:\nmedium"
+    )
+
+    show_response = client.post(
+        "/slack/events",
+        json=make_event("show stemlab memory", event_id="evt-show-saved-source-backed-finding"),
+    )
+
+    assert show_response.status_code == 200
+    assert captured["responses"][-1].startswith("StemLab project memory:")
+    assert "StemLab Research Finding:" in captured["responses"][-1]
+    assert f"StemLab source-backed finding: {finding}" in captured["responses"][-1]
+    assert f"Source: {source}" in captured["responses"][-1]
+    assert "Confidence: medium." in captured["responses"][-1]
+
+
+def test_stemlab_save_source_backed_finding_missing_source_does_not_save(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "stemlab save source backed finding Ableton users report slow stem separation",
+            event_id="evt-save-source-backed-finding-missing-source",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["memories"] == []
+    assert captured["text"].startswith("To save a StemLab source-backed finding, use:")
+    assert "stemlab save source backed finding <finding text> source <url>" in captured["text"]
+    assert "Example:" in captured["text"]
+
+
+def test_stemlab_save_source_backed_finding_missing_finding_does_not_save(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "stemlab save source backed finding source https://www.reddit.com/r/ableton/comments/example",
+            event_id="evt-save-source-backed-finding-missing-finding",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["memories"] == []
+    assert captured["text"].startswith("To save a StemLab source-backed finding, use:")
+    assert "stemlab save source backed finding <finding text> source <url>" in captured["text"]
+    assert "Example:" in captured["text"]
+
+
 def test_stemlab_memory_command(monkeypatch):
     reset_route_state()
     captured = {}

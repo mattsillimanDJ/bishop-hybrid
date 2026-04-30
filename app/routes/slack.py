@@ -798,6 +798,16 @@ def stemlab_source_backed_finding_text() -> str:
     )
 
 
+def stemlab_source_backed_finding_usage_text() -> str:
+    return (
+        "To save a StemLab source-backed finding, use:\n"
+        "stemlab save source backed finding <finding text> source <url>\n\n"
+        "Example:\n"
+        "stemlab save source backed finding Ableton users report stem separation can be slow on longer files "
+        "source https://www.reddit.com/r/ableton/comments/example"
+    )
+
+
 def extract_web_research_query(user_text: str) -> str | None:
     match = re.match(r"^\s*web\s+research(?:\s*[:,-]\s*|\s+)(.+)$", user_text or "", re.IGNORECASE)
     if not match:
@@ -814,6 +824,25 @@ def extract_stemlab_live_web_research_query(user_text: str) -> str | None:
     if not match:
         return None
     return re.sub(r"\s+", " ", match.group(1)).strip() or None
+
+
+def extract_stemlab_source_backed_finding(user_text: str) -> dict | None:
+    prefix_match = re.match(
+        r"^\s*stemlab\s+save\s+source\s+backed\s+finding\b(?P<body>.*)$",
+        user_text or "",
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not prefix_match:
+        return None
+
+    body = clean_string(prefix_match.group("body"))
+    match = re.match(r"^(?P<finding>.+?)\s+source\s+(?P<source>\S+)\s*$", body, re.IGNORECASE)
+    if not match:
+        return {"finding": "", "source": ""}
+
+    finding = re.sub(r"\s+", " ", match.group("finding")).strip()
+    source = match.group("source").strip()
+    return {"finding": finding, "source": source}
 
 
 def escape_slack_external_text(value: object) -> str:
@@ -2076,6 +2105,34 @@ async def slack_events(request: Request):
             result = run_web_research(web_research_query)
             response_text = format_web_research_response(result)
             post_message(channel_id, response_text, unfurl_links=False, unfurl_media=False)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        source_backed_finding = extract_stemlab_source_backed_finding(user_text)
+        if source_backed_finding is not None:
+            finding = source_backed_finding.get("finding") or ""
+            source = source_backed_finding.get("source") or ""
+            if not finding or not source:
+                response_text = stemlab_source_backed_finding_usage_text()
+                post_message(channel_id, response_text)
+                log_system_response(user_id, channel_id, user_text, response_text)
+                return {"ok": True}
+
+            content = f"StemLab source-backed finding: {finding} Source: {source} Confidence: medium."
+            add_memory(
+                user_id=user_id,
+                category="StemLab Research Finding",
+                content=content,
+                lane=STEMLAB_MEMORY_LANE,
+                visibility="private",
+            )
+            response_text = (
+                "Saved StemLab source-backed finding.\n\n"
+                f"Finding:\n{finding}\n\n"
+                f"Source:\n{source}\n\n"
+                "Confidence:\nmedium"
+            )
+            post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
