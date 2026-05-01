@@ -9,6 +9,7 @@ from app.routes.memory import router as memory_router
 from app.routes.slack import router as slack_router
 from app.services.conversation_log_service import init_conversation_log_table
 from app.services.memory_service import init_db, seed_memory
+from app.services.focus_service import init_focus_table
 from app.services.mode_service import init_mode_table
 from app.services.provider_state_service import init_provider_table
 from app.services.task_service import init_task_table
@@ -18,6 +19,7 @@ from app.services.task_service import init_task_table
 async def lifespan(app: FastAPI):
     init_db()
     init_conversation_log_table()
+    init_focus_table()
     init_mode_table()
     init_provider_table()
     init_task_table()

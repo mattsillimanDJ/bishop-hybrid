@@ -1900,6 +1900,222 @@ def test_what_lane_am_i_in_command(monkeypatch):
     assert "Default visibility: shared" in captured["text"]
 
 
+def test_focus_stemlab_sets_focus_for_user_and_lane(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_focus_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_active_focus(user_id, lane, focus):
+        set_focus_calls.append((user_id, lane, focus))
+        return focus
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_active_focus", fake_set_active_focus)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("focus stemlab", event_id="evt-focus-stemlab"),
+    )
+
+    assert response.status_code == 200
+    assert set_focus_calls == [("U123", "work", "stemlab")]
+    assert captured["text"] == "Focus set to stemlab for the work lane."
+
+
+def test_switch_focus_to_stemlab_sets_focus(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_focus_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_active_focus(user_id, lane, focus):
+        set_focus_calls.append((user_id, lane, focus))
+        return focus
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_active_focus", fake_set_active_focus)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "dj")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("switch focus to stemlab", event_id="evt-switch-focus-stemlab"),
+    )
+
+    assert response.status_code == 200
+    assert set_focus_calls == [("U123", "dj", "stemlab")]
+    assert captured["text"] == "Focus set to stemlab for the dj lane."
+
+
+def test_show_current_focus(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "stemlab")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("current focus", event_id="evt-current-focus"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "Current focus: stemlab"
+
+
+def test_clear_focus(monkeypatch):
+    reset_route_state()
+    captured = {}
+    clear_focus_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_clear_active_focus(user_id, lane):
+        clear_focus_calls.append((user_id, lane))
+        return True
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "clear_active_focus", fake_clear_active_focus)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("clear focus", event_id="evt-clear-focus"),
+    )
+
+    assert response.status_code == 200
+    assert clear_focus_calls == [("U123", "work")]
+    assert captured["text"] == "Focus cleared for the work lane."
+
+
+def test_unsupported_focus_returns_helpful_response(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_focus_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "set_active_focus",
+        lambda user_id, lane, focus: set_focus_calls.append((user_id, lane, focus)),
+    )
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("focus finance", event_id="evt-focus-unsupported"),
+    )
+
+    assert response.status_code == 200
+    assert set_focus_calls == []
+    assert captured["text"].startswith("Unsupported focus: finance.")
+    assert "stemlab" in captured["text"]
+    assert "website" in captured["text"]
+
+
+def test_focus_does_not_change_mode_or_provider_status(monkeypatch):
+    reset_route_state()
+    captured = {}
+    mode_calls = []
+    provider_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_mode(user_id, mode):
+        mode_calls.append((user_id, mode))
+
+    def fake_set_provider_override(provider):
+        provider_calls.append(provider)
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_active_focus", lambda user_id, lane, focus: focus)
+    monkeypatch.setattr(slack_route, "set_mode", fake_set_mode)
+    monkeypatch.setattr(slack_route, "set_provider_override", fake_set_provider_override)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("set focus stemlab", event_id="evt-focus-no-mode-provider"),
+    )
+
+    assert response.status_code == 200
+    assert mode_calls == []
+    assert provider_calls == []
+    assert captured["text"].startswith("Focus set to stemlab")
+
+
+def test_stemlab_focus_influences_general_question_without_memory_capture(monkeypatch):
+    reset_route_state()
+    captured = {"posted": []}
+    memory_calls = []
+
+    def fake_post_message(channel, text):
+        captured["posted"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Research next: validate Ableton-ready stem-pack pain with producers."
+
+    def fake_add_memory(**kwargs):
+        memory_calls.append(kwargs)
+        return {"id": 1}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "stemlab")
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "what should we research next?",
+            event_id="evt-stemlab-focus-general-question",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert "Active focus: StemLab." in captured["message_to_model"]
+    assert "what should we research next?" in captured["message_to_model"]
+    assert captured["posted"][-1] == "Research next: validate Ableton-ready stem-pack pain with producers."
+    assert memory_calls == []
+
+
 def test_provider_command(monkeypatch):
     reset_route_state()
     captured = {}

@@ -13,6 +13,12 @@ from app.services.conversation_log_service import (
     get_recent_conversations_for_user,
     log_conversation,
 )
+from app.services.focus_service import (
+    VALID_FOCUSES,
+    clear_active_focus,
+    get_active_focus,
+    set_active_focus,
+)
 from app.services.lane_service import get_default_visibility_for_lane, get_lane_from_channel
 from app.services.memory_service import (
     add_memory,
@@ -160,6 +166,15 @@ LANE_QUERY_MESSAGES = {
     "what lane am i in",
     "what lane are we in",
     "current lane",
+}
+
+FOCUS_QUERY_MESSAGES = {
+    "current focus",
+    "show focus",
+}
+
+FOCUS_CLEAR_MESSAGES = {
+    "clear focus",
 }
 
 TASK_QUERY_MESSAGES = {
@@ -470,6 +485,13 @@ def help_text() -> str:
         "* stemlab decisions\n"
         "* stemlab open questions\n"
         "* stemlab risks\n\n"
+        "Focus:\n"
+        "* focus stemlab\n"
+        "* switch focus to stemlab\n"
+        "* set focus stemlab\n"
+        "* current focus\n"
+        "* show focus\n"
+        "* clear focus\n\n"
         "System:\n"
         "* show lane\n"
         "* what lane am i in\n"
@@ -1251,6 +1273,10 @@ def is_stemlab_auto_memory_eligible_command(lowered: str) -> bool:
         return False
     if lowered in MODE_QUERY_MESSAGES or lowered in LANE_QUERY_MESSAGES:
         return False
+    if lowered in FOCUS_QUERY_MESSAGES or lowered in FOCUS_CLEAR_MESSAGES:
+        return False
+    if extract_focus_request(lowered):
+        return False
     if lowered in {"provider", "show provider", "model", "status", "show config"}:
         return False
     if lowered.startswith("provider "):
@@ -1541,6 +1567,51 @@ def build_lane_text(channel_id: str, lane: str, default_visibility: str) -> str:
         f"Current lane: {lane}\n"
         f"Channel ID: {channel_id}\n"
         f"Default visibility: {default_visibility}"
+    )
+
+
+def extract_focus_request(message: str) -> str | None:
+    match = re.match(
+        r"^\s*(?:focus|set\s+focus|switch\s+focus\s+to)\s+([a-z0-9_-]+)\s*$",
+        message or "",
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return match.group(1).strip().lower()
+
+
+def build_focus_set_text(focus: str, lane: str) -> str:
+    return f"Focus set to {focus} for the {lane} lane."
+
+
+def build_focus_query_text(focus: str | None, lane: str) -> str:
+    if focus:
+        return f"Current focus: {focus}"
+    return f"No active focus for the {lane} lane."
+
+
+def build_focus_clear_text(cleared: bool, lane: str) -> str:
+    if cleared:
+        return f"Focus cleared for the {lane} lane."
+    return f"No active focus to clear for the {lane} lane."
+
+
+def build_unknown_focus_text(requested_focus: str) -> str:
+    return (
+        f"Unsupported focus: {requested_focus}. "
+        "Available focuses: " + ", ".join(sorted(VALID_FOCUSES)) + "."
+    )
+
+
+def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
+    if focus != "stemlab":
+        return user_text
+
+    return (
+        "Active focus: StemLab.\n"
+        "Answer through StemLab context even if the user does not say StemLab explicitly.\n\n"
+        f"User message:\n{user_text}"
     )
 
 
@@ -2297,6 +2368,34 @@ async def slack_events(request: Request):
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
+        requested_focus = extract_focus_request(user_text)
+        if requested_focus:
+            if requested_focus not in VALID_FOCUSES:
+                response_text = build_unknown_focus_text(requested_focus)
+            else:
+                focus = set_active_focus(user_id=user_id, lane=lane, focus=requested_focus)
+                response_text = build_focus_set_text(focus=focus, lane=lane)
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in FOCUS_QUERY_MESSAGES:
+            focus = get_active_focus(user_id=user_id, lane=lane)
+            response_text = build_focus_query_text(focus=focus, lane=lane)
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in FOCUS_CLEAR_MESSAGES:
+            cleared = clear_active_focus(user_id=user_id, lane=lane)
+            response_text = build_focus_clear_text(cleared=cleared, lane=lane)
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
         memory_visibility, remembered_text, is_explicit_visibility = resolve_memory_visibility(
             user_text=user_text,
             lane_default_visibility=default_visibility,
@@ -2623,7 +2722,12 @@ async def slack_events(request: Request):
             log_system_response(user_id, channel_id, user_text, response_text, model=active_model)
             return {"ok": True}
 
+        active_focus = get_active_focus(user_id=user_id, lane=lane)
         expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
+        focused_user_text = apply_active_focus_to_message(
+            user_text=expanded_user_text,
+            focus=active_focus,
+        )
 
         if should_send_working_message(user_text):
             working_messages = [
@@ -2634,7 +2738,7 @@ async def slack_events(request: Request):
             post_message(channel_id, random.choice(working_messages))
 
         try:
-            response_text = generate_reply(user_id=user_id, message=expanded_user_text)
+            response_text = generate_reply(user_id=user_id, message=focused_user_text)
             if not response_text or not response_text.strip():
                 raise ValueError("Empty response from generate_reply")
         except Exception as e:
