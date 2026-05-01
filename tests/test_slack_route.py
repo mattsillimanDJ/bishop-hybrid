@@ -214,6 +214,65 @@ def test_expands_short_followup_when_previous_reply_invited_it(monkeypatch):
     assert captured["text"] == "Here are 3 more jokes."
 
 
+def test_normal_generated_slack_reply_receives_concise_style_instruction(monkeypatch):
+    reset_route_state()
+    captured = {"posted": []}
+
+    def fake_post_message(channel, text):
+        captured["posted"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Short answer."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what should I do next?", event_id="evt-slack-style-normal"),
+    )
+
+    assert response.status_code == 200
+    assert captured["message_to_model"].startswith("Slack style:")
+    assert "answer naturally and concisely" in captured["message_to_model"]
+    assert "For simple questions, use 1 to 5 short paragraphs or bullets." in captured["message_to_model"]
+    assert "User message:\nwhat should I do next?" in captured["message_to_model"]
+    assert captured["posted"] == ["Short answer."]
+
+
+def test_simple_generated_slack_question_does_not_send_working_message(monkeypatch):
+    reset_route_state()
+    posted = []
+
+    def fake_post_message(channel, text):
+        posted.append(text)
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "Use the shortest useful answer.")
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("can you summarize the plan?", event_id="evt-simple-no-working"),
+    )
+
+    assert response.status_code == 200
+    assert posted == ["Use the shortest useful answer."]
+
+
 def test_help_command(monkeypatch):
     reset_route_state()
     captured = {}
@@ -2110,7 +2169,10 @@ def test_stemlab_focus_influences_general_question_without_memory_capture(monkey
     )
 
     assert response.status_code == 200
+    assert captured["message_to_model"].startswith("Slack style:")
+    assert "answer naturally and concisely" in captured["message_to_model"]
     assert "Active focus: StemLab." in captured["message_to_model"]
+    assert "Answer through StemLab context" in captured["message_to_model"]
     assert "what should we research next?" in captured["message_to_model"]
     assert captured["posted"][-1] == "Research next: validate Ableton-ready stem-pack pain with producers."
     assert memory_calls == []

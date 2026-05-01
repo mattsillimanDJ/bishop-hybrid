@@ -65,6 +65,13 @@ recent_message_fingerprints: dict[str, float] = {}
 MAX_PROCESSED_EVENT_IDS = 1000
 MESSAGE_DEDUPE_WINDOW_SECONDS = 8
 MESSAGE_DEDUPE_CACHE_LIMIT = 1000
+WORKING_MESSAGE_MIN_CHARS = 80
+
+SLACK_STYLE_INSTRUCTION = (
+    "Slack style: answer naturally and concisely. Lead with the direct answer. "
+    "For simple questions, use 1 to 5 short paragraphs or bullets. "
+    "Avoid consulting-deck structure, long lists, and repeated contrastive framing unless the request truly needs it."
+)
 
 SHORT_FOLLOWUP_MESSAGES = {
     "yes",
@@ -381,7 +388,7 @@ def should_send_working_message(user_text: str) -> bool:
     if normalized in SHORT_FOLLOWUP_MESSAGES:
         return False
 
-    if len(normalized) < 25:
+    if len(normalized) < WORKING_MESSAGE_MIN_CHARS:
         return False
 
     return True
@@ -1615,6 +1622,13 @@ def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
     )
 
 
+def apply_slack_style_to_message(user_text: str) -> str:
+    return (
+        f"{SLACK_STYLE_INSTRUCTION}\n\n"
+        f"User message:\n{user_text}"
+    )
+
+
 def get_tasks_for_lane(user_id: str, lane: str, status: str, limit: int = 10):
     try:
         return get_tasks(user_id=user_id, lane=lane, status=status, limit=limit)
@@ -2728,6 +2742,7 @@ async def slack_events(request: Request):
             user_text=expanded_user_text,
             focus=active_focus,
         )
+        styled_user_text = apply_slack_style_to_message(focused_user_text)
 
         if should_send_working_message(user_text):
             working_messages = [
@@ -2738,7 +2753,7 @@ async def slack_events(request: Request):
             post_message(channel_id, random.choice(working_messages))
 
         try:
-            response_text = generate_reply(user_id=user_id, message=focused_user_text)
+            response_text = generate_reply(user_id=user_id, message=styled_user_text)
             if not response_text or not response_text.strip():
                 raise ValueError("Empty response from generate_reply")
         except Exception as e:
