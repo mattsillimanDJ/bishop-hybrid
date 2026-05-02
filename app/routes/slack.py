@@ -1591,6 +1591,50 @@ def extract_focus_request(message: str) -> str | None:
     return match.group(1).strip().lower()
 
 
+def normalize_natural_focus_target(target: str) -> str | None:
+    normalized = re.sub(r"\s+", " ", (target or "").strip().lower())
+    normalized = normalized.rstrip(" \t.!;:")
+    aliases = {
+        "stemlab": "stemlab",
+        "stem lab": "stemlab",
+        "bishop": "bishop",
+        "dj": "dj",
+        "dj stuff": "dj",
+        "website": "website",
+        "web site": "website",
+    }
+    return aliases.get(normalized)
+
+
+def extract_natural_focus_intent(message: str) -> tuple[str, str | None] | None:
+    text = re.sub(r"\s+", " ", (message or "").strip())
+    if not text or "?" in text:
+        return None
+
+    if re.match(
+        r"^clear\s+(?:the\s+)?focus(?:\s+for\s+now)?\s*[.!;:]*$",
+        text,
+        re.IGNORECASE,
+    ):
+        return ("clear", None)
+
+    patterns = [
+        r"^(?:let(?:'|’)?s|let us)\s+work\s+on\s+(.+?)(?:\s+for\s+(?:a\s+)?bit|\s+for\s+now)?\s*[.!;:]*$",
+        r"^back\s+to\s+(.+?)\s*[.!;:]*$",
+        r"^switch\s+(?:us\s+)?over\s+to\s+(.+?)\s*[.!;:]*$",
+        r"^(?:let(?:'|’)?s|let us)\s+talk\s+(.+?)\s*[.!;:]*$",
+    ]
+    for pattern in patterns:
+        match = re.match(pattern, text, re.IGNORECASE)
+        if not match:
+            continue
+        focus = normalize_natural_focus_target(match.group(1))
+        if focus:
+            return ("set", focus)
+
+    return None
+
+
 def build_focus_set_text(focus: str, lane: str) -> str:
     return f"{format_focus_name(focus)} is now the focus here."
 
@@ -1608,9 +1652,13 @@ def build_focus_clear_text(cleared: bool, lane: str) -> str:
 
 
 def format_focus_name(focus: str) -> str:
-    if focus == "stemlab":
-        return "StemLab"
-    return focus
+    names = {
+        "stemlab": "StemLab",
+        "bishop": "Bishop",
+        "dj": "DJ",
+        "website": "Website",
+    }
+    return names.get(focus, focus)
 
 
 def build_unknown_focus_text(requested_focus: str) -> str:
@@ -2397,6 +2445,20 @@ async def slack_events(request: Request):
                 response_text = build_unknown_focus_text(requested_focus)
             else:
                 focus = set_active_focus(user_id=user_id, lane=lane, focus=requested_focus)
+                response_text = build_focus_set_text(focus=focus, lane=lane)
+
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        natural_focus_intent = extract_natural_focus_intent(user_text)
+        if natural_focus_intent:
+            focus_action, requested_focus = natural_focus_intent
+            if focus_action == "clear":
+                cleared = clear_active_focus(user_id=user_id, lane=lane)
+                response_text = build_focus_clear_text(cleared=cleared, lane=lane)
+            else:
+                focus = set_active_focus(user_id=user_id, lane=lane, focus=requested_focus or "")
                 response_text = build_focus_set_text(focus=focus, lane=lane)
 
             post_message(channel_id, response_text)

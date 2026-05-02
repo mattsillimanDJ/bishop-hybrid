@@ -2094,6 +2094,174 @@ def test_clear_focus(monkeypatch):
     assert captured["text"] == "Focus cleared here."
 
 
+def test_natural_focus_phrases_set_focus(monkeypatch):
+    reset_route_state()
+    posted = []
+    set_focus_calls = []
+    memory_calls = []
+
+    def fake_post_message(channel, text):
+        posted.append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_active_focus(user_id, lane, focus):
+        set_focus_calls.append((user_id, lane, focus))
+        return focus
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_active_focus", fake_set_active_focus)
+    monkeypatch.setattr(slack_route, "add_memory", lambda **kwargs: memory_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    cases = [
+        ("let’s work on StemLab for a bit", "stemlab", "StemLab is now the focus here."),
+        ("back to Bishop", "bishop", "Bishop is now the focus here."),
+        ("switch us over to DJ stuff", "dj", "DJ is now the focus here."),
+        ("let’s talk website", "website", "Website is now the focus here."),
+    ]
+
+    for index, (message, focus, response_text) in enumerate(cases):
+        response = client.post(
+            "/slack/events",
+            json=make_event(message, event_id=f"evt-natural-focus-{index}"),
+        )
+
+        assert response.status_code == 200
+        assert set_focus_calls[-1] == ("U123", "work", focus)
+        assert posted[-1] == response_text
+
+    assert memory_calls == []
+
+
+def test_natural_clear_focus_phrase_clears_focus(monkeypatch):
+    reset_route_state()
+    captured = {}
+    clear_focus_calls = []
+    memory_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_clear_active_focus(user_id, lane):
+        clear_focus_calls.append((user_id, lane))
+        return True
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "clear_active_focus", fake_clear_active_focus)
+    monkeypatch.setattr(slack_route, "add_memory", lambda **kwargs: memory_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("clear the focus for now", event_id="evt-natural-clear-focus"),
+    )
+
+    assert response.status_code == 200
+    assert clear_focus_calls == [("U123", "work")]
+    assert captured["text"] == "Focus cleared here."
+    assert memory_calls == []
+
+
+def test_natural_focus_safety_cases_do_not_change_focus(monkeypatch):
+    reset_route_state()
+    posted = []
+    set_focus_calls = []
+    clear_focus_calls = []
+    memory_calls = []
+
+    def fake_post_message(channel, text):
+        posted.append(text)
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(
+        slack_route,
+        "set_active_focus",
+        lambda user_id, lane, focus: set_focus_calls.append((user_id, lane, focus)),
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "clear_active_focus",
+        lambda user_id, lane: clear_focus_calls.append((user_id, lane)),
+    )
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "add_memory", lambda **kwargs: memory_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "generate_reply", lambda user_id, message: "General reply.")
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    cases = [
+        "what should we research next?",
+        "tell me about websites",
+        "what DJ software should I use?",
+        "let’s work on this",
+    ]
+
+    for index, message in enumerate(cases):
+        response = client.post(
+            "/slack/events",
+            json=make_event(message, event_id=f"evt-natural-focus-safety-{index}"),
+        )
+        assert response.status_code == 200
+        assert posted[-1] == "General reply."
+
+    assert set_focus_calls == []
+    assert clear_focus_calls == []
+    assert memory_calls == []
+
+
+def test_natural_focus_remains_user_and_lane_scoped(monkeypatch):
+    reset_route_state()
+    set_focus_calls = []
+
+    def fake_set_active_focus(user_id, lane, focus):
+        set_focus_calls.append((user_id, lane, focus))
+        return focus
+
+    def fake_get_lane_from_channel(channel_id, resolver=None):
+        return {"CWORK": "work", "CDJ": "dj"}[channel_id]
+
+    monkeypatch.setattr(slack_route, "post_message", lambda channel, text: {"ok": True, "ts": "123"})
+    monkeypatch.setattr(slack_route, "set_active_focus", fake_set_active_focus)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", fake_get_lane_from_channel)
+
+    first = client.post(
+        "/slack/events",
+        json=make_event(
+            "let’s work on StemLab for a bit",
+            event_id="evt-natural-focus-user-lane-1",
+            user_id="U123",
+            channel_id="CWORK",
+        ),
+    )
+    second = client.post(
+        "/slack/events",
+        json=make_event(
+            "back to Bishop",
+            event_id="evt-natural-focus-user-lane-2",
+            user_id="U999",
+            channel_id="CDJ",
+        ),
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert set_focus_calls == [
+        ("U123", "work", "stemlab"),
+        ("U999", "dj", "bishop"),
+    ]
+
+
 def test_unsupported_focus_returns_helpful_response(monkeypatch):
     reset_route_state()
     captured = {}
