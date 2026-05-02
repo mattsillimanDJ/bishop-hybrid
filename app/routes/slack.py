@@ -69,7 +69,10 @@ WORKING_MESSAGE_MIN_CHARS = 80
 
 SLACK_STYLE_INSTRUCTION = (
     "Slack style: answer naturally and concisely. Lead with the direct answer. "
-    "For simple questions, use 1 to 5 short paragraphs or bullets. "
+    "For simple questions, use 1 to 4 short paragraphs or bullets, with 3 to 5 bullets max. "
+    "For 'what should we do next' or research-next questions, prefer one recommendation, "
+    "up to 3 priorities, and one clear next move. "
+    "Use longer structure only when the user asks for detail or the request truly needs planning depth. "
     "Avoid consulting-deck structure, long lists, and repeated contrastive framing unless the request truly needs it."
 )
 
@@ -1589,19 +1592,25 @@ def extract_focus_request(message: str) -> str | None:
 
 
 def build_focus_set_text(focus: str, lane: str) -> str:
-    return f"Focus set to {focus} for the {lane} lane."
+    return f"{format_focus_name(focus)} is now the focus here."
 
 
 def build_focus_query_text(focus: str | None, lane: str) -> str:
     if focus:
-        return f"Current focus: {focus}"
-    return f"No active focus for the {lane} lane."
+        return f"Current focus here is {format_focus_name(focus)}."
+    return "No active focus here."
 
 
 def build_focus_clear_text(cleared: bool, lane: str) -> str:
     if cleared:
-        return f"Focus cleared for the {lane} lane."
-    return f"No active focus to clear for the {lane} lane."
+        return "Focus cleared here."
+    return "No active focus here."
+
+
+def format_focus_name(focus: str) -> str:
+    if focus == "stemlab":
+        return "StemLab"
+    return focus
 
 
 def build_unknown_focus_text(requested_focus: str) -> str:

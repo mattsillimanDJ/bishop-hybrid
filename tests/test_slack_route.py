@@ -243,7 +243,9 @@ def test_normal_generated_slack_reply_receives_concise_style_instruction(monkeyp
     assert response.status_code == 200
     assert captured["message_to_model"].startswith("Slack style:")
     assert "answer naturally and concisely" in captured["message_to_model"]
-    assert "For simple questions, use 1 to 5 short paragraphs or bullets." in captured["message_to_model"]
+    assert "For simple questions, use 1 to 4 short paragraphs or bullets" in captured["message_to_model"]
+    assert "with 3 to 5 bullets max" in captured["message_to_model"]
+    assert "prefer one recommendation, up to 3 priorities, and one clear next move" in captured["message_to_model"]
     assert "User message:\nwhat should I do next?" in captured["message_to_model"]
     assert captured["posted"] == ["Short answer."]
 
@@ -1985,7 +1987,7 @@ def test_focus_stemlab_sets_focus_for_user_and_lane(monkeypatch):
 
     assert response.status_code == 200
     assert set_focus_calls == [("U123", "work", "stemlab")]
-    assert captured["text"] == "Focus set to stemlab for the work lane."
+    assert captured["text"] == "StemLab is now the focus here."
 
 
 def test_switch_focus_to_stemlab_sets_focus(monkeypatch):
@@ -2014,7 +2016,7 @@ def test_switch_focus_to_stemlab_sets_focus(monkeypatch):
 
     assert response.status_code == 200
     assert set_focus_calls == [("U123", "dj", "stemlab")]
-    assert captured["text"] == "Focus set to stemlab for the dj lane."
+    assert captured["text"] == "StemLab is now the focus here."
 
 
 def test_show_current_focus(monkeypatch):
@@ -2037,7 +2039,30 @@ def test_show_current_focus(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert captured["text"] == "Current focus: stemlab"
+    assert captured["text"] == "Current focus here is StemLab."
+
+
+def test_show_current_focus_when_none(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("current focus", event_id="evt-current-focus-none"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == "No active focus here."
 
 
 def test_clear_focus(monkeypatch):
@@ -2066,7 +2091,7 @@ def test_clear_focus(monkeypatch):
 
     assert response.status_code == 200
     assert clear_focus_calls == [("U123", "work")]
-    assert captured["text"] == "Focus cleared for the work lane."
+    assert captured["text"] == "Focus cleared here."
 
 
 def test_unsupported_focus_returns_helpful_response(monkeypatch):
@@ -2130,7 +2155,7 @@ def test_focus_does_not_change_mode_or_provider_status(monkeypatch):
     assert response.status_code == 200
     assert mode_calls == []
     assert provider_calls == []
-    assert captured["text"].startswith("Focus set to stemlab")
+    assert captured["text"] == "StemLab is now the focus here."
 
 
 def test_stemlab_focus_influences_general_question_without_memory_capture(monkeypatch):
@@ -2171,6 +2196,8 @@ def test_stemlab_focus_influences_general_question_without_memory_capture(monkey
     assert response.status_code == 200
     assert captured["message_to_model"].startswith("Slack style:")
     assert "answer naturally and concisely" in captured["message_to_model"]
+    assert "For simple questions, use 1 to 4 short paragraphs or bullets" in captured["message_to_model"]
+    assert "prefer one recommendation, up to 3 priorities, and one clear next move" in captured["message_to_model"]
     assert "Active focus: StemLab." in captured["message_to_model"]
     assert "Answer through StemLab context" in captured["message_to_model"]
     assert "what should we research next?" in captured["message_to_model"]
