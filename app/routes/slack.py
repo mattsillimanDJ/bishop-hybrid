@@ -1669,12 +1669,42 @@ def build_unknown_focus_text(requested_focus: str) -> str:
 
 
 def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
-    if focus != "stemlab":
+    if focus == "stemlab":
+        return (
+            "Active focus: StemLab.\n"
+            "Answer through StemLab context even if the user does not say StemLab explicitly.\n\n"
+            f"User message:\n{user_text}"
+        )
+
+    focus_contexts = {
+        "bishop": (
+            "Active focus: Bishop.\n"
+            "Interpret ambiguous follow-ups through Bishop project, repo, product, "
+            "config, Slack route, tests, deploy, and ops context.\n"
+            "Give concrete Bishop next steps. Do not give generic productivity, "
+            "project-management, or decision-framework advice."
+        ),
+        "dj": (
+            "Active focus: DJ.\n"
+            "Interpret ambiguous follow-ups through DJ, music, set prep, tracks, "
+            "transitions, crates, events, mixes, and creative workflow context.\n"
+            "Give concrete DJ next steps. Do not give generic project, meeting, "
+            "or decision-prep advice."
+        ),
+        "website": (
+            "Active focus: Website.\n"
+            "Interpret ambiguous follow-ups through website, content, pages, "
+            "site structure, conversion, SEO, and product presence context.\n"
+            "Give concrete website next steps. Do not give generic productivity "
+            "or product-management advice."
+        ),
+    }
+    context = focus_contexts.get(focus)
+    if not context:
         return user_text
 
     return (
-        "Active focus: StemLab.\n"
-        "Answer through StemLab context even if the user does not say StemLab explicitly.\n\n"
+        f"{context}\n\n"
         f"User message:\n{user_text}"
     )
 

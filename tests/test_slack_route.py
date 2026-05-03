@@ -2373,6 +2373,186 @@ def test_stemlab_focus_influences_general_question_without_memory_capture(monkey
     assert memory_calls == []
 
 
+def test_bishop_focus_guides_general_question_to_model_without_side_effects(monkeypatch):
+    reset_route_state()
+    captured = {"posted": []}
+    get_focus_calls = []
+    memory_calls = []
+    task_calls = []
+
+    def fake_post_message(channel, text):
+        captured["posted"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Clean up the Slack focus tests next."
+
+    def fake_get_active_focus(user_id, lane):
+        get_focus_calls.append((user_id, lane))
+        return "bishop"
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", fake_get_active_focus)
+    monkeypatch.setattr(slack_route, "add_memory", lambda **kwargs: memory_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "add_task_for_lane", lambda **kwargs: task_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what should we clean up next?", event_id="evt-bishop-focus-general"),
+    )
+
+    assert response.status_code == 200
+    assert get_focus_calls == [("U123", "work")]
+    assert captured["message_to_model"].startswith("Slack style:")
+    assert "Active focus: Bishop." in captured["message_to_model"]
+    assert (
+        "Interpret ambiguous follow-ups through Bishop project, repo, product, "
+        "config, Slack route, tests, deploy, and ops context."
+    ) in captured["message_to_model"]
+    assert (
+        "Give concrete Bishop next steps. Do not give generic productivity, "
+        "project-management, or decision-framework advice."
+    ) in captured["message_to_model"]
+    assert "what should we clean up next?" in captured["message_to_model"]
+    assert captured["posted"] == ["Clean up the Slack focus tests next."]
+    assert memory_calls == []
+    assert task_calls == []
+
+
+def test_dj_focus_guides_general_question_to_model_without_side_effects(monkeypatch):
+    reset_route_state()
+    captured = {"posted": []}
+    memory_calls = []
+    task_calls = []
+
+    def fake_post_message(channel, text):
+        captured["posted"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Prep the first transition block."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "dj")
+    monkeypatch.setattr(slack_route, "add_memory", lambda **kwargs: memory_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "add_task_for_lane", lambda **kwargs: task_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "dj")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what should I prep next?", event_id="evt-dj-focus-general"),
+    )
+
+    assert response.status_code == 200
+    assert captured["message_to_model"].startswith("Slack style:")
+    assert "Active focus: DJ." in captured["message_to_model"]
+    assert (
+        "Interpret ambiguous follow-ups through DJ, music, set prep, tracks, "
+        "transitions, crates, events, mixes, and creative workflow context."
+    ) in captured["message_to_model"]
+    assert (
+        "Give concrete DJ next steps. Do not give generic project, meeting, "
+        "or decision-prep advice."
+    ) in captured["message_to_model"]
+    assert "what should I prep next?" in captured["message_to_model"]
+    assert captured["posted"] == ["Prep the first transition block."]
+    assert memory_calls == []
+    assert task_calls == []
+
+
+def test_website_focus_guides_general_question_to_model_without_side_effects(monkeypatch):
+    reset_route_state()
+    captured = {"posted": []}
+    memory_calls = []
+    task_calls = []
+
+    def fake_post_message(channel, text):
+        captured["posted"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Improve the homepage proof section."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "website")
+    monkeypatch.setattr(slack_route, "add_memory", lambda **kwargs: memory_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "add_task_for_lane", lambda **kwargs: task_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "website")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what should we improve next?", event_id="evt-website-focus-general"),
+    )
+
+    assert response.status_code == 200
+    assert captured["message_to_model"].startswith("Slack style:")
+    assert "Active focus: Website." in captured["message_to_model"]
+    assert (
+        "Interpret ambiguous follow-ups through website, content, pages, "
+        "site structure, conversion, SEO, and product presence context."
+    ) in captured["message_to_model"]
+    assert (
+        "Give concrete website next steps. Do not give generic productivity "
+        "or product-management advice."
+    ) in captured["message_to_model"]
+    assert "what should we improve next?" in captured["message_to_model"]
+    assert captured["posted"] == ["Improve the homepage proof section."]
+    assert memory_calls == []
+    assert task_calls == []
+
+
+def test_no_active_focus_leaves_general_question_without_focus_context(monkeypatch):
+    reset_route_state()
+    captured = {"posted": []}
+
+    def fake_post_message(channel, text):
+        captured["posted"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Use the normal path."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what should we work on next?", event_id="evt-no-focus-general"),
+    )
+
+    assert response.status_code == 200
+    assert captured["message_to_model"].startswith("Slack style:")
+    assert "Active focus:" not in captured["message_to_model"]
+    assert "User message:\nwhat should we work on next?" in captured["message_to_model"]
+    assert captured["posted"] == ["Use the normal path."]
+
+
 def test_provider_command(monkeypatch):
     reset_route_state()
     captured = {}
