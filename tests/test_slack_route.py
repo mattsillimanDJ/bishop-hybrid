@@ -2661,6 +2661,53 @@ def test_build_project_status_commands_return_static_summary_without_side_effect
     assert "Final runbook/status cleanup" in captured["text"]
 
 
+@pytest.mark.parametrize(
+    ("command", "event_id"),
+    [
+        ("next sprint", "evt-next-sprint"),
+        ("what should we build next", "evt-what-build-next"),
+        ("what should we work on next", "evt-what-work-next"),
+        ("recommend next sprint", "evt-recommend-next-sprint"),
+        ("bishop next sprint", "evt-bishop-next-sprint"),
+    ],
+)
+def test_next_sprint_commands_return_static_recommendation_without_side_effects(
+    monkeypatch,
+    command,
+    event_id,
+):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fail_generate_reply(user_id, message):
+        raise AssertionError("next sprint must not call model generation")
+
+    def fail_add_memory(**kwargs):
+        raise AssertionError("next sprint must not save memory")
+
+    def fail_add_task(**kwargs):
+        raise AssertionError("next sprint must not create tasks")
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fail_generate_reply)
+    monkeypatch.setattr(slack_route, "add_memory", fail_add_memory)
+    monkeypatch.setattr(slack_route, "add_task", fail_add_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event(command, event_id=event_id))
+
+    assert response.status_code == 200
+    assert captured["text"] == slack_route.bishop_next_sprint_text()
+    assert captured["text"].startswith("Recommended Next Sprint")
+    assert "Final runbook/status cleanup." in captured["text"]
+    assert "Matt approval required before commit/push." in captured["text"]
+
+
 def test_status_command_still_uses_existing_system_status(monkeypatch):
     reset_route_state()
     captured = {}

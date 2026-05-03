@@ -160,6 +160,14 @@ BISHOP_BUILD_STATUS_MESSAGES = {
     "what did we just finish",
 }
 
+BISHOP_NEXT_SPRINT_MESSAGES = {
+    "next sprint",
+    "what should we build next",
+    "what should we work on next",
+    "recommend next sprint",
+    "bishop next sprint",
+}
+
 STEMLAB_MEMORY_LANE = "stemlab"
 
 STEMLAB_MEMORY_CATEGORIES = {
@@ -822,6 +830,22 @@ def bishop_build_status_text() -> str:
         "- Codex builds, tests, and summarizes; Matt approves commits/pushes; no random memory autosave\n\n"
         "Next recommended sprint:\n"
         "- Final runbook/status cleanup"
+    )
+
+
+def bishop_next_sprint_text() -> str:
+    return (
+        "Recommended Next Sprint\n\n"
+        "Final runbook/status cleanup.\n\n"
+        "Why:\n"
+        "- Core Slack focus behavior is working.\n"
+        "- Builder guardrails are documented.\n"
+        "- Build/project status is live.\n\n"
+        "Scope:\n"
+        "- Update the runbook with current completed commits.\n"
+        "- Add a short Bishop v1 wrap checklist.\n"
+        "- Keep runtime behavior unchanged.\n\n"
+        "Matt approval required before commit/push."
     )
 
 
@@ -2393,6 +2417,12 @@ async def slack_events(request: Request):
 
         if lowered in BISHOP_BUILD_STATUS_MESSAGES:
             response_text = bishop_build_status_text()
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in BISHOP_NEXT_SPRINT_MESSAGES:
+            response_text = bishop_next_sprint_text()
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
