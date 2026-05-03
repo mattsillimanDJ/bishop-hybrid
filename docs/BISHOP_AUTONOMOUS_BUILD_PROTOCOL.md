@@ -2,6 +2,20 @@
 
 Autonomous does not mean unlimited. For Bishop, autonomous means ChatGPT and Codex can work independently inside a clearly scoped sprint, then stop before risky actions.
 
+## Current Bishop v1 Operating Baseline
+
+Treat these as completed Bishop v1 capabilities unless repo evidence clearly changes later:
+
+- Slack focus commands are live: `focus stemlab`, `switch focus to stemlab`, `set focus stemlab`, `current focus`, `show focus`, and `clear focus`.
+- Natural Slack focus switching is live for StemLab, Bishop, DJ, and Website.
+- Active focus context is live for StemLab, Bishop, DJ, and Website.
+- Focused Slack replies are intentionally shorter and end with one concrete next move.
+- Build/project status and next sprint commands are live.
+- Existing system status and provider status are preserved.
+- OpenAI and Claude provider checks remain visible through Slack status/provider output.
+
+Do not turn this baseline into another feature sprint unless Matt asks for a specific change.
+
 ## Roles
 
 ### ChatGPT

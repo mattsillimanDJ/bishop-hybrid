@@ -2,6 +2,144 @@
 
 This is the beginner-friendly checklist for working on Bishop from the Mac mini.
 
+## Current Bishop v1 Completed Capabilities
+
+Bishop v1 currently has these working capabilities documented in the repo and covered by tests:
+
+- Exact Slack focus commands:
+  - `focus stemlab`
+  - `switch focus to stemlab`
+  - `set focus stemlab`
+  - `current focus`
+  - `show focus`
+  - `clear focus`
+- Natural Slack focus switching:
+  - `let's work on StemLab for a bit`
+  - `back to Bishop`
+  - `switch us over to DJ stuff`
+  - `let's talk website`
+  - `clear the focus for now`
+- Active focus context for:
+  - StemLab
+  - Bishop
+  - DJ
+  - Website
+- Shorter focused Slack answer shape:
+  - Starts with one direct recommendation.
+  - Uses at most 2 or 3 short bullets.
+  - Ends with one concrete next move.
+  - Avoids nested bullets unless Matt asks for detail.
+- Autonomous builder docs:
+  - ChatGPT helps Matt plan small sprints.
+  - Codex edits, tests, and summarizes.
+  - Matt approves commits, pushes, and deploys.
+- Build/project status command:
+  - `build status`
+  - `project status`
+  - `bishop status`
+  - `bishop build status`
+  - `what is the build status`
+  - `where are we with bishop`
+  - `what did we just finish`
+- Next sprint command:
+  - `next sprint`
+  - `what should we build next`
+  - `what should we work on next`
+  - `recommend next sprint`
+  - `bishop next sprint`
+- Existing system/provider status is preserved:
+  - `status` still shows the normal Bishop system status.
+  - `provider` and `show provider` still show provider status.
+  - `model` still shows the active model.
+- OpenAI and Claude provider checks are visible in Slack status/provider output.
+
+## Bishop v1 Wrap Checklist
+
+Use this checklist before treating Bishop v1 as wrapped:
+
+- Repo is clean.
+- Tests are passing.
+- Slack focus works.
+- Build status works.
+- Next sprint works.
+- System status works.
+- No random memory autosave.
+- No accidental task creation.
+- Matt approves commits and pushes.
+- No Slack shell, git, deploy, or file mutation commands.
+
+## Daily Operating Flow
+
+This is the normal beginner-friendly loop for using ChatGPT, Codex, Terminal, and Slack together:
+
+1. Ask Bishop in Slack:
+
+```text
+@Bishop Hybrid build status
+```
+
+2. Ask Bishop in Slack:
+
+```text
+@Bishop Hybrid next sprint
+```
+
+3. Open Terminal.
+
+4. SSH to the Bishop Mac mini:
+
+```bash
+ssh bishop@YOUR_MAC_MINI_ADDRESS
+```
+
+5. Go to the repo:
+
+```bash
+cd ~/bishop_hybrid
+```
+
+6. Activate the virtual environment:
+
+```bash
+source .venv/bin/activate
+```
+
+7. Check the repo state:
+
+```bash
+git status --short --branch
+```
+
+8. Run the tests:
+
+```bash
+pytest -q
+```
+
+9. Start Codex:
+
+```bash
+codex
+```
+
+10. Paste a small sprint prompt into Codex. Keep it narrow, and include:
+
+```text
+Do not commit. Do not push. Keep this small. Preserve Bishop runtime behavior.
+```
+
+11. When Codex finishes, paste the Codex summary back into ChatGPT.
+
+12. Commit and push only after Matt approves.
+
+13. Live-test the result in Slack.
+
+## Stop Adding Features
+
+When the Bishop v1 wrap checklist passes, stop polishing for a few days.
+
+Use Bishop live in Slack. Collect rough edges as they appear in real use. Do not keep adding features or cleanup sprints unless a real issue appears.
+
 ## 1. SSH Into The Bishop Mac Mini
 
 From your own computer, open Terminal and run the SSH command you normally use for the Bishop Mac mini.

@@ -6,6 +6,8 @@ This document summarizes the current Bishop brain and provider setup from repo e
 
 Bishop already has OpenAI/Chat and Claude provider support wired into the app. Codex is the builder/developer agent used to inspect the repo, edit files, run tests, and summarize changes. Do not rebuild this setup unless Matt approves a provider or architecture sprint.
 
+Slack status/provider output should keep showing the current provider checks, including OpenAI and Claude availability/configuration status where the app already reports it. Do not remove those checks during cleanup sprints.
+
 ## What The Repo Shows
 
 ### Chat/OpenAI Brain
