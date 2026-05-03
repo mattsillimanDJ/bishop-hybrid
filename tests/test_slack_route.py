@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -2609,6 +2610,77 @@ def test_provider_command(monkeypatch):
     assert response.status_code == 200
     assert "Effective provider: openai" in captured["text"]
     assert "Active model: gpt-4.1-mini" in captured["text"]
+
+
+@pytest.mark.parametrize(
+    ("command", "event_id"),
+    [
+        ("build status", "evt-build-status"),
+        ("project status", "evt-project-status"),
+        ("bishop status", "evt-bishop-status"),
+        ("bishop build status", "evt-bishop-build-status"),
+        ("what is the build status", "evt-what-is-build-status"),
+        ("where are we with bishop", "evt-where-are-we-bishop"),
+        ("what did we just finish", "evt-what-did-we-finish"),
+    ],
+)
+def test_build_project_status_commands_return_static_summary_without_side_effects(
+    monkeypatch,
+    command,
+    event_id,
+):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fail_generate_reply(user_id, message):
+        raise AssertionError("build status must not call model generation")
+
+    def fail_add_memory(**kwargs):
+        raise AssertionError("build status must not save memory")
+
+    def fail_add_task(**kwargs):
+        raise AssertionError("build status must not create tasks")
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fail_generate_reply)
+    monkeypatch.setattr(slack_route, "add_memory", fail_add_memory)
+    monkeypatch.setattr(slack_route, "add_task", fail_add_task)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event(command, event_id=event_id))
+
+    assert response.status_code == 200
+    assert captured["text"] == slack_route.bishop_build_status_text()
+    assert captured["text"].startswith("Bishop Build Status")
+    assert "Codex builds, tests, and summarizes" in captured["text"]
+    assert "Final runbook/status cleanup" in captured["text"]
+
+
+def test_status_command_still_uses_existing_system_status(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_build_status_text(user_id, lane):
+        return "*Bishop Status*\n\n*Mode:* default", "gpt-test"
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "build_status_text", fake_build_status_text)
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post("/slack/events", json=make_event("status", event_id="evt-system-status"))
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("*Bishop Status*")
+    assert "Bishop Build Status" not in captured["text"]
 
 
 def test_status_command_includes_pending_tasks(monkeypatch):

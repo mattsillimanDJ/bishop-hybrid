@@ -150,6 +150,16 @@ RESEARCH_MESSAGES = {
     "research status",
 }
 
+BISHOP_BUILD_STATUS_MESSAGES = {
+    "build status",
+    "project status",
+    "bishop status",
+    "bishop build status",
+    "what is the build status",
+    "where are we with bishop",
+    "what did we just finish",
+}
+
 STEMLAB_MEMORY_LANE = "stemlab"
 
 STEMLAB_MEMORY_CATEGORIES = {
@@ -802,6 +812,19 @@ def research_command_text(command: str) -> str:
     return research_text()
 
 
+def bishop_build_status_text() -> str:
+    return (
+        "Bishop Build Status\n\n"
+        "Done:\n"
+        "- Natural focus switching; active focus context for StemLab, Bishop, DJ, and Website\n"
+        "- Shorter focused Slack answer shape; autonomous builder docs in repo\n\n"
+        "Current guardrails:\n"
+        "- Codex builds, tests, and summarizes; Matt approves commits/pushes; no random memory autosave\n\n"
+        "Next recommended sprint:\n"
+        "- Final runbook/status cleanup"
+    )
+
+
 def stemlab_web_research_text() -> str:
     return (
         "StemLab web research workflow:\n"
@@ -1287,6 +1310,8 @@ def is_stemlab_auto_memory_eligible_command(lowered: str) -> bool:
     if lowered in MODE_GUIDE_MESSAGES or lowered in MODE_RECOMMENDATION_MESSAGES:
         return False
     if lowered in STEMLAB_PROJECT_MESSAGES or lowered in STEMLAB_MEMORY_QUERY_MESSAGES:
+        return False
+    if lowered in BISHOP_BUILD_STATUS_MESSAGES:
         return False
     if lowered in MODE_QUERY_MESSAGES or lowered in LANE_QUERY_MESSAGES:
         return False
@@ -2362,6 +2387,12 @@ async def slack_events(request: Request):
 
         if lowered in RESEARCH_MESSAGES:
             response_text = research_command_text(lowered)
+            post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        if lowered in BISHOP_BUILD_STATUS_MESSAGES:
+            response_text = bishop_build_status_text()
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
