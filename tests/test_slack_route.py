@@ -2368,6 +2368,11 @@ def test_stemlab_focus_influences_general_question_without_memory_capture(monkey
     assert "prefer one recommendation, up to 3 priorities, and one clear next move" in captured["message_to_model"]
     assert "Active focus: StemLab." in captured["message_to_model"]
     assert "Answer through StemLab context" in captured["message_to_model"]
+    assert "Focused Slack answer shape: start with one direct recommendation." in captured["message_to_model"]
+    assert "Use at most 2 or 3 short bullets." in captured["message_to_model"]
+    assert "End with one concrete next move." in captured["message_to_model"]
+    assert "Avoid nested bullets unless the user explicitly asks for detail." in captured["message_to_model"]
+    assert "Do not end with generic requests for more context" in captured["message_to_model"]
     assert "what should we research next?" in captured["message_to_model"]
     assert captured["posted"][-1] == "Research next: validate Ableton-ready stem-pack pain with producers."
     assert memory_calls == []
@@ -2420,6 +2425,11 @@ def test_bishop_focus_guides_general_question_to_model_without_side_effects(monk
         "Give concrete Bishop next steps. Do not give generic productivity, "
         "project-management, or decision-framework advice."
     ) in captured["message_to_model"]
+    assert "Focused Slack answer shape: start with one direct recommendation." in captured["message_to_model"]
+    assert "Use at most 2 or 3 short bullets." in captured["message_to_model"]
+    assert "End with one concrete next move." in captured["message_to_model"]
+    assert "Avoid nested bullets unless the user explicitly asks for detail." in captured["message_to_model"]
+    assert "Do not end with generic requests for more context" in captured["message_to_model"]
     assert "what should we clean up next?" in captured["message_to_model"]
     assert captured["posted"] == ["Clean up the Slack focus tests next."]
     assert memory_calls == []
@@ -2467,6 +2477,11 @@ def test_dj_focus_guides_general_question_to_model_without_side_effects(monkeypa
         "Give concrete DJ next steps. Do not give generic project, meeting, "
         "or decision-prep advice."
     ) in captured["message_to_model"]
+    assert "Focused Slack answer shape: start with one direct recommendation." in captured["message_to_model"]
+    assert "Use at most 2 or 3 short bullets." in captured["message_to_model"]
+    assert "End with one concrete next move." in captured["message_to_model"]
+    assert "Avoid nested bullets unless the user explicitly asks for detail." in captured["message_to_model"]
+    assert "Do not end with generic requests for more context" in captured["message_to_model"]
     assert "what should I prep next?" in captured["message_to_model"]
     assert captured["posted"] == ["Prep the first transition block."]
     assert memory_calls == []
@@ -2514,6 +2529,11 @@ def test_website_focus_guides_general_question_to_model_without_side_effects(mon
         "Give concrete website next steps. Do not give generic productivity "
         "or product-management advice."
     ) in captured["message_to_model"]
+    assert "Focused Slack answer shape: start with one direct recommendation." in captured["message_to_model"]
+    assert "Use at most 2 or 3 short bullets." in captured["message_to_model"]
+    assert "End with one concrete next move." in captured["message_to_model"]
+    assert "Avoid nested bullets unless the user explicitly asks for detail." in captured["message_to_model"]
+    assert "Do not end with generic requests for more context" in captured["message_to_model"]
     assert "what should we improve next?" in captured["message_to_model"]
     assert captured["posted"] == ["Improve the homepage proof section."]
     assert memory_calls == []
@@ -2549,6 +2569,8 @@ def test_no_active_focus_leaves_general_question_without_focus_context(monkeypat
     assert response.status_code == 200
     assert captured["message_to_model"].startswith("Slack style:")
     assert "Active focus:" not in captured["message_to_model"]
+    assert "Focused Slack answer shape:" not in captured["message_to_model"]
+    assert "Use at most 2 or 3 short bullets." not in captured["message_to_model"]
     assert "User message:\nwhat should we work on next?" in captured["message_to_model"]
     assert captured["posted"] == ["Use the normal path."]
 

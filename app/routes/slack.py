@@ -76,6 +76,13 @@ SLACK_STYLE_INSTRUCTION = (
     "Avoid consulting-deck structure, long lists, and repeated contrastive framing unless the request truly needs it."
 )
 
+FOCUSED_SLACK_ANSWER_SHAPE = (
+    "Focused Slack answer shape: start with one direct recommendation. "
+    "Use at most 2 or 3 short bullets. End with one concrete next move. "
+    "Avoid nested bullets unless the user explicitly asks for detail. "
+    "Do not end with generic requests for more context unless the question truly cannot be answered."
+)
+
 SHORT_FOLLOWUP_MESSAGES = {
     "yes",
     "yes please",
@@ -1673,6 +1680,7 @@ def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
         return (
             "Active focus: StemLab.\n"
             "Answer through StemLab context even if the user does not say StemLab explicitly.\n\n"
+            f"{FOCUSED_SLACK_ANSWER_SHAPE}\n\n"
             f"User message:\n{user_text}"
         )
 
@@ -1705,6 +1713,7 @@ def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
 
     return (
         f"{context}\n\n"
+        f"{FOCUSED_SLACK_ANSWER_SHAPE}\n\n"
         f"User message:\n{user_text}"
     )
 
