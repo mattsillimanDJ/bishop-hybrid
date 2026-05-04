@@ -29,6 +29,8 @@ Bishop v1 currently has these working capabilities documented in the repo and co
   - Uses at most 2 or 3 short bullets.
   - Ends with one concrete next move.
   - Avoids nested bullets unless Matt asks for detail.
+- Future reply style source of truth:
+  - `docs/BISHOP_RESPONSE_CONTRACT.md`
 - Autonomous builder docs:
   - ChatGPT helps Matt plan small sprints.
   - Codex edits, tests, and summarizes.
