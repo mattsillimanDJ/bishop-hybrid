@@ -823,29 +823,28 @@ def research_command_text(command: str) -> str:
 def bishop_build_status_text() -> str:
     return (
         "Bishop Build Status\n\n"
-        "Done:\n"
-        "- Natural focus switching; active focus context for StemLab, Bishop, DJ, and Website\n"
-        "- Shorter focused Slack answer shape; autonomous builder docs in repo\n\n"
+        "Status:\n"
+        "- Bishop v1 is effectively wrapped.\n"
+        "- Live Slack commands, focus behavior, builder docs, runbook, and wrap checklist are in place.\n\n"
         "Current guardrails:\n"
-        "- Codex builds, tests, and summarizes; Matt approves commits/pushes; no random memory autosave\n\n"
-        "Next recommended sprint:\n"
-        "- Final runbook/status cleanup"
+        "- Codex builds, tests, and summarizes; Matt approves commits/pushes; no random memory autosave.\n\n"
+        "Recommended next step:\n"
+        "- Use Bishop live for a few days and collect rough edges."
     )
 
 
 def bishop_next_sprint_text() -> str:
     return (
         "Recommended Next Sprint\n\n"
-        "Final runbook/status cleanup.\n\n"
+        "Use Bishop live for a few days and collect rough edges.\n\n"
         "Why:\n"
-        "- Core Slack focus behavior is working.\n"
-        "- Builder guardrails are documented.\n"
-        "- Build/project status is live.\n\n"
+        "- Bishop v1 is effectively wrapped.\n"
+        "- More building should wait for real issues from live use.\n\n"
         "Scope:\n"
-        "- Update the runbook with current completed commits.\n"
-        "- Add a short Bishop v1 wrap checklist.\n"
-        "- Keep runtime behavior unchanged.\n\n"
-        "Matt approval required before commit/push."
+        "- Use normal Slack workflows.\n"
+        "- Note rough edges, confusing answers, or missing status details.\n"
+        "- Planning only: consider future response contract consolidation after live notes exist.\n\n"
+        "No commit/push unless Matt approves."
     )
 
 

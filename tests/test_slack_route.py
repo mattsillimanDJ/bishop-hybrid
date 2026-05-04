@@ -2657,8 +2657,10 @@ def test_build_project_status_commands_return_static_summary_without_side_effect
     assert response.status_code == 200
     assert captured["text"] == slack_route.bishop_build_status_text()
     assert captured["text"].startswith("Bishop Build Status")
+    assert "Bishop v1 is effectively wrapped." in captured["text"]
     assert "Codex builds, tests, and summarizes" in captured["text"]
-    assert "Final runbook/status cleanup" in captured["text"]
+    assert "Use Bishop live for a few days and collect rough edges." in captured["text"]
+    assert "Final runbook/status cleanup" not in captured["text"]
 
 
 @pytest.mark.parametrize(
@@ -2704,8 +2706,10 @@ def test_next_sprint_commands_return_static_recommendation_without_side_effects(
     assert response.status_code == 200
     assert captured["text"] == slack_route.bishop_next_sprint_text()
     assert captured["text"].startswith("Recommended Next Sprint")
-    assert "Final runbook/status cleanup." in captured["text"]
-    assert "Matt approval required before commit/push." in captured["text"]
+    assert "Use Bishop live for a few days and collect rough edges." in captured["text"]
+    assert "future response contract consolidation" in captured["text"]
+    assert "Final runbook/status cleanup" not in captured["text"]
+    assert "No commit/push unless Matt approves." in captured["text"]
 
 
 def test_status_command_still_uses_existing_system_status(monkeypatch):
