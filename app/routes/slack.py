@@ -46,6 +46,10 @@ from app.services.research_service import (
     run_web_research,
     validate_research_config,
 )
+from app.services.session_context_service import (
+    append_working_session_turn,
+    get_working_session_context,
+)
 from app.services.task_service import (
     add_task,
     build_task_text_from_user_message,
@@ -66,6 +70,11 @@ MAX_PROCESSED_EVENT_IDS = 1000
 MESSAGE_DEDUPE_WINDOW_SECONDS = 8
 MESSAGE_DEDUPE_CACHE_LIMIT = 1000
 WORKING_MESSAGE_MIN_CHARS = 80
+
+BOT_NAME_PREFIX_PATTERN = re.compile(
+    r"^\s*(?:@?\s*bishop(?:\s+hybrid|_hybrid)?)[\s,:-]+",
+    re.IGNORECASE,
+)
 
 SLACK_STYLE_INSTRUCTION = (
     "Slack style: answer naturally and concisely. Lead with the direct answer. "
@@ -364,6 +373,40 @@ def strip_app_mention(text: str) -> str:
     return re.sub(r"<@[^>]+>", "", text).strip()
 
 
+def strip_bot_name_prefix(text: str) -> str:
+    stripped = (text or "").strip()
+    previous = None
+    while stripped and stripped != previous:
+        previous = stripped
+        stripped = BOT_NAME_PREFIX_PATTERN.sub("", stripped).strip()
+    return stripped
+
+
+def normalize_user_text_for_slack_event(text: str, strip_name_prefix: bool = True) -> str:
+    stripped = strip_app_mention(text)
+    if strip_name_prefix:
+        return strip_bot_name_prefix(stripped)
+    return stripped
+
+
+def is_direct_slack_conversation(event: dict) -> bool:
+    channel_type = (event.get("channel_type") or "").strip().lower()
+    if channel_type in {"im", "mpim"}:
+        return True
+
+    channel_id = (event.get("channel") or "").strip().upper()
+    return channel_id.startswith("D")
+
+
+def should_process_slack_event(event: dict) -> bool:
+    event_type = event.get("type")
+    if event_type == "app_mention":
+        return True
+    if event_type == "message" and is_direct_slack_conversation(event):
+        return True
+    return False
+
+
 def normalize_message_for_dedupe(text: str) -> str:
     normalized = (text or "").strip().lower()
     normalized = re.sub(r"\s+", " ", normalized)
@@ -420,6 +463,27 @@ def should_send_working_message(user_text: str) -> bool:
         return False
 
     return True
+
+
+def generate_reply_for_slack(
+    *,
+    user_id: str,
+    message: str,
+    working_context: str,
+) -> str:
+    if not working_context:
+        return generate_reply(user_id=user_id, message=message)
+
+    try:
+        return generate_reply(
+            user_id=user_id,
+            message=message,
+            working_context=working_context,
+        )
+    except TypeError as exc:
+        if "working_context" not in str(exc):
+            raise
+        return generate_reply(user_id=user_id, message=message)
 
 
 def help_text() -> str:
@@ -2366,7 +2430,7 @@ async def slack_events(request: Request):
 
     event = body.get("event", {})
 
-    if event.get("type") != "app_mention":
+    if not should_process_slack_event(event):
         return {"ok": True}
 
     if event.get("bot_id"):
@@ -2376,7 +2440,10 @@ async def slack_events(request: Request):
     user_id = resolve_bishop_user_id(slack_user_id or "")
     channel_id = event.get("channel")
     raw_text = event.get("text", "")
-    user_text = strip_app_mention(raw_text)
+    user_text = normalize_user_text_for_slack_event(
+        raw_text,
+        strip_name_prefix=event.get("type") != "app_mention",
+    )
 
     if not user_id or not channel_id or not user_text:
         return {"ok": True}
@@ -2908,6 +2975,11 @@ async def slack_events(request: Request):
 
         active_focus = get_active_focus(user_id=user_id, lane=lane)
         expanded_user_text = expand_short_followup_message(user_id=user_id, user_text=user_text)
+        working_context = get_working_session_context(
+            user_id=user_id,
+            lane=lane,
+            focus=active_focus,
+        )
         focused_user_text = apply_active_focus_to_message(
             user_text=expanded_user_text,
             focus=active_focus,
@@ -2923,7 +2995,11 @@ async def slack_events(request: Request):
             post_message(channel_id, random.choice(working_messages))
 
         try:
-            response_text = generate_reply(user_id=user_id, message=styled_user_text)
+            response_text = generate_reply_for_slack(
+                user_id=user_id,
+                message=styled_user_text,
+                working_context=working_context,
+            )
             if not response_text or not response_text.strip():
                 raise ValueError("Empty response from generate_reply")
         except Exception as e:
@@ -2977,6 +3053,13 @@ async def slack_events(request: Request):
                 mode=get_mode(user_id),
                 provider=effective_provider,
                 model=active_model,
+            )
+            append_working_session_turn(
+                user_id=user_id,
+                lane=lane,
+                focus=active_focus,
+                user_message=user_text,
+                assistant_response=response_text,
             )
         except Exception as e:
             print(f"[Bishop] post-processing failed: {str(e)}")

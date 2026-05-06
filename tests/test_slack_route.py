@@ -22,6 +22,27 @@ def make_event(text: str, event_id: str = "evt-1", user_id: str = "U123", channe
     }
 
 
+def make_message_event(
+    text: str,
+    event_id: str = "evt-message-1",
+    user_id: str = "U123",
+    channel_id: str = "D123",
+    channel_type: str = "im",
+):
+    return {
+        "type": "event_callback",
+        "event_id": event_id,
+        "event": {
+            "type": "message",
+            "user": user_id,
+            "channel": channel_id,
+            "channel_type": channel_type,
+            "text": text,
+            "ts": "123.456",
+        },
+    }
+
+
 def reset_route_state():
     slack_route.processed_event_ids.clear()
     slack_route.recent_message_fingerprints.clear()
@@ -86,19 +107,15 @@ def test_ignores_non_event_callback():
     assert response.json() == {"ok": True}
 
 
-def test_ignores_non_app_mention():
+def test_ignores_channel_message_without_app_mention():
     response = client.post(
         "/slack/events",
-        json={
-            "type": "event_callback",
-            "event_id": "evt-non-mention",
-            "event": {
-                "type": "message",
-                "user": "U123",
-                "channel": "C123",
-                "text": "hello",
-            },
-        },
+        json=make_message_event(
+            "hello",
+            event_id="evt-non-mention",
+            channel_id="C123",
+            channel_type="channel",
+        ),
     )
     assert response.status_code == 200
     assert response.json() == {"ok": True}
@@ -213,6 +230,122 @@ def test_expands_short_followup_when_previous_reply_invited_it(monkeypatch):
     assert response.status_code == 200
     assert "You are continuing a Slack conversation." in captured["message_to_model"]
     assert captured["text"] == "Here are 3 more jokes."
+
+
+def test_followup_uses_working_session_context(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured.setdefault("posted", []).append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message, working_context=""):
+        captured["message_to_model"] = message
+        captured["working_context"] = working_context
+        return "Next move: turn the StemLab plan into a one-page MVP test."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "stemlab")
+    monkeypatch.setattr(
+        slack_route,
+        "get_working_session_context",
+        lambda user_id, lane, focus: (
+            "Recent working session context:\n"
+            "User: We should validate StemLab with an Ableton stem workflow MVP.\n"
+            "Bishop: Next move: write the smallest MVP test plan."
+        ),
+    )
+    monkeypatch.setattr(slack_route, "append_working_session_turn", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "stemlab")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("let's do the next move", event_id="evt-session-context"),
+    )
+
+    assert response.status_code == 200
+    assert "StemLab" in captured["working_context"]
+    assert "let's do the next move" in captured["message_to_model"]
+    assert captured["posted"] == ["Next move: turn the StemLab plan into a one-page MVP test."]
+
+
+def test_dm_message_without_app_mention_is_processed(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["channel"] = channel
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "DM reply."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "append_working_session_turn", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "dm")
+
+    response = client.post(
+        "/slack/events",
+        json=make_message_event("continue the plan", event_id="evt-dm-no-mention"),
+    )
+
+    assert response.status_code == 200
+    assert captured["channel"] == "D123"
+    assert captured["text"] == "DM reply."
+    assert "continue the plan" in captured["message_to_model"]
+
+
+def test_channel_message_without_app_mention_is_ignored(monkeypatch):
+    reset_route_state()
+
+    def fail_post_message(channel, text):
+        raise AssertionError("Channel messages without a mention should be ignored.")
+
+    def fail_generate_reply(*args, **kwargs):
+        raise AssertionError("Channel messages without a mention should not reach the model.")
+
+    monkeypatch.setattr(slack_route, "post_message", fail_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fail_generate_reply)
+
+    response = client.post(
+        "/slack/events",
+        json=make_message_event(
+            "normal channel chatter",
+            event_id="evt-channel-without-mention",
+            channel_id="C123",
+            channel_type="channel",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+@pytest.mark.parametrize(
+    "raw_text,expected",
+    [
+        ("@Bishop Hybrid status", "status"),
+        ("Bishop Hybrid status", "status"),
+        ("bishop status", "status"),
+        ("bishop_hybrid status", "status"),
+    ],
+)
+def test_bot_name_prefixes_are_normalized(raw_text, expected):
+    assert slack_route.normalize_user_text_for_slack_event(raw_text) == expected
 
 
 def test_normal_generated_slack_reply_receives_concise_style_instruction(monkeypatch):

@@ -284,7 +284,7 @@ def build_task_text_from_message(message: str) -> str:
     return normalized[:157].rstrip() + "..."
 
 
-def generate_reply(user_id: str, message: str) -> str:
+def generate_reply(user_id: str, message: str, working_context: str = "") -> str:
     mode = get_mode(user_id)
     memory_context = generate_memory_context(user_id=user_id, message=message)
     task_context = generate_task_context(user_id=user_id)
@@ -300,6 +300,13 @@ Product context:
 {product_context}
 """
 
+    working_context_section = ""
+    if working_context:
+        working_context_section = f"""
+Working session context:
+{working_context}
+"""
+
     user_prompt = f"""
 Current mode:
 {mode}
@@ -310,6 +317,7 @@ Pending tasks:
 Relevant memory:
 {memory_context}
 
+{working_context_section}
 {product_context_section}
 {personalization_guidance}
 
@@ -321,6 +329,8 @@ User message:
     print(f"[Bishop] Mode: {mode}")
     print(f"[Bishop] Pending tasks: {task_context}")
     print(f"[Bishop] Memory context: {memory_context}")
+    if working_context:
+        print(f"[Bishop] Working session context: {working_context}")
     if product_context:
         print(f"[Bishop] Product context: {product_context}")
     if personalization_guidance:

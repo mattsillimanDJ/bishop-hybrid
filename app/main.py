@@ -12,6 +12,7 @@ from app.services.memory_service import init_db, seed_memory
 from app.services.focus_service import init_focus_table
 from app.services.mode_service import init_mode_table
 from app.services.provider_state_service import init_provider_table
+from app.services.session_context_service import init_working_session_context_table
 from app.services.task_service import init_task_table
 
 
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     init_mode_table()
     init_provider_table()
     init_task_table()
+    init_working_session_context_table()
     result = seed_memory()
     print(f"Memory startup: {result}")
     yield
