@@ -7,3 +7,4 @@ __pycache__/
 .DS_Store
 app/data/bishop_memory.db
 app_backup_day4/
+generated_artifacts/

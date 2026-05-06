@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routes import slack as slack_route
+from app.services.artifact_service import ArtifactResult
 
 
 client = TestClient(app)
@@ -417,6 +418,81 @@ def test_trusted_channel_message_can_match_normalized_channel_name(monkeypatch):
     assert captured["channel"] == "C456"
     assert captured["text"] == "Named trusted channel reply."
     assert "continue by channel name" in captured["message_to_model"]
+
+
+def test_slack_docx_export_missing_content_returns_useful_response(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["channel"] = channel
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fail_create_artifact(*args, **kwargs):
+        raise AssertionError("Artifact should not be created without content.")
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "create_artifact", fail_create_artifact)
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("make this a word doc", event_id="evt-docx-missing-content"),
+    )
+
+    assert response.status_code == 200
+    assert captured["channel"] == "C123"
+    assert "I need content to export" in captured["text"]
+    assert "make this a Word doc" in captured["text"]
+
+
+def test_slack_xlsx_export_upload_failure_returns_local_file_fallback(monkeypatch, tmp_path):
+    reset_route_state()
+    captured = {}
+    artifact_path = tmp_path / "bishop_artifact_test.xlsx"
+    artifact_path.write_text("placeholder")
+
+    def fake_post_message(channel, text):
+        captured["channel"] = channel
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_create_artifact(kind, content):
+        captured["artifact_kind"] = kind
+        captured["artifact_content"] = content
+        return ArtifactResult(
+            kind="xlsx",
+            path=artifact_path,
+            filename=artifact_path.name,
+        )
+
+    def fake_upload_file_to_slack(**kwargs):
+        captured["upload_kwargs"] = kwargs
+        return {"ok": False, "error": "missing_scope"}
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "create_artifact", fake_create_artifact)
+    monkeypatch.setattr(slack_route, "upload_file_to_slack", fake_upload_file_to_slack)
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "make this an excel file: Name,Status\nBishop,Ready",
+            event_id="evt-xlsx-upload-failure",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["artifact_kind"] == "xlsx"
+    assert captured["artifact_content"] == "Name,Status\nBishop,Ready"
+    assert captured["upload_kwargs"]["channel"] == "C123"
+    assert captured["upload_kwargs"]["file_path"] == str(artifact_path)
+    assert captured["channel"] == "C123"
+    assert "could not upload it to Slack" in captured["text"]
+    assert str(artifact_path) in captured["text"]
+    assert "files:write" in captured["text"]
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,7 @@
 import random
 import re
 import time
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Request
@@ -8,6 +9,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from app.config import settings
+from app.services.artifact_service import create_artifact, detect_artifact_export_request
 from app.services.chat_service import generate_reply, response_contains_commitment
 from app.services.conversation_log_service import (
     get_recent_conversations_for_user,
@@ -351,6 +353,39 @@ def post_message(
     except SlackApiError as e:
         print(f"Slack API error: {e.response['error']}")
         return {"ok": False, "error": e.response["error"]}
+
+
+def upload_file_to_slack(
+    *,
+    channel: str,
+    file_path: str,
+    title: str,
+    initial_comment: str,
+    thread_ts: str | None = None,
+):
+    if not settings.SLACK_BOT_TOKEN:
+        print("Missing SLACK_BOT_TOKEN")
+        return {"ok": False, "error": "Missing SLACK_BOT_TOKEN"}
+
+    kwargs = {
+        "channel": channel,
+        "file": file_path,
+        "filename": Path(file_path).name,
+        "title": title,
+        "initial_comment": initial_comment,
+    }
+    if thread_ts:
+        kwargs["thread_ts"] = thread_ts
+
+    try:
+        response = slack_client.files_upload_v2(**kwargs)
+        return {"ok": bool(response.get("ok", True))}
+    except SlackApiError as e:
+        print(f"Slack file upload error: {e.response['error']}")
+        return {"ok": False, "error": e.response["error"]}
+    except Exception as e:
+        print(f"Slack file upload unexpected error: {str(e)}")
+        return {"ok": False, "error": str(e)}
 
 
 def resolve_slack_channel_name(channel_id: str) -> Optional[str]:
@@ -2528,6 +2563,44 @@ async def slack_events(request: Request):
         if lowered in BISHOP_NEXT_SPRINT_MESSAGES:
             response_text = bishop_next_sprint_text()
             post_message(channel_id, response_text)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        artifact_request = detect_artifact_export_request(user_text)
+        if artifact_request:
+            if not artifact_request.content:
+                response_text = (
+                    "I can make that file, but I need content to export. "
+                    "Paste the content after the export request, like: "
+                    "make this a Word doc: <content>"
+                )
+                post_message(channel_id, response_text)
+                log_system_response(user_id, channel_id, user_text, response_text)
+                return {"ok": True}
+
+            artifact = create_artifact(
+                kind=artifact_request.kind,
+                content=artifact_request.content,
+            )
+            file_label = "Word document" if artifact.kind == "docx" else "Excel spreadsheet"
+            upload_result = upload_file_to_slack(
+                channel=channel_id,
+                file_path=str(artifact.path),
+                title=artifact.filename,
+                initial_comment=f"I created the {file_label}: {artifact.filename}",
+                thread_ts=event.get("thread_ts") or event.get("ts"),
+            )
+
+            if upload_result.get("ok"):
+                response_text = f"Created and uploaded {artifact.filename}."
+            else:
+                response_text = (
+                    f"I created the file but could not upload it to Slack.\n"
+                    f"Local file: {artifact.path}\n"
+                    "Slack file upload may need `files:write` permission."
+                )
+                post_message(channel_id, response_text)
+
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}
 
