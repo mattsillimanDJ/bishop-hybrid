@@ -9,6 +9,7 @@ class Settings:
     APP_ENV: str = os.getenv("APP_ENV", "development")
     SLACK_BOT_TOKEN: str = os.getenv("SLACK_BOT_TOKEN", "")
     SLACK_SIGNING_SECRET: str = os.getenv("SLACK_SIGNING_SECRET", "")
+    BISHOP_AUTO_LISTEN_CHANNELS: str = os.getenv("BISHOP_AUTO_LISTEN_CHANNELS", "")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai").lower()

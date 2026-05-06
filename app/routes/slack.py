@@ -389,6 +389,21 @@ def normalize_user_text_for_slack_event(text: str, strip_name_prefix: bool = Tru
     return stripped
 
 
+def normalize_auto_listen_channel(value: str) -> str:
+    normalized = (value or "").strip().lower().lstrip("#")
+    normalized = re.sub(r"\s+", "-", normalized)
+    return normalized
+
+
+def get_auto_listen_channels() -> set[str]:
+    raw_channels = getattr(settings, "BISHOP_AUTO_LISTEN_CHANNELS", "")
+    return {
+        normalized
+        for item in raw_channels.split(",")
+        if (normalized := normalize_auto_listen_channel(item))
+    }
+
+
 def is_direct_slack_conversation(event: dict) -> bool:
     channel_type = (event.get("channel_type") or "").strip().lower()
     if channel_type in {"im", "mpim"}:
@@ -398,11 +413,34 @@ def is_direct_slack_conversation(event: dict) -> bool:
     return channel_id.startswith("D")
 
 
-def should_process_slack_event(event: dict) -> bool:
+def is_auto_listen_channel(event: dict, resolver=None) -> bool:
+    allowed_channels = get_auto_listen_channels()
+    if not allowed_channels:
+        return False
+
+    channel_id = event.get("channel") or ""
+    if normalize_auto_listen_channel(channel_id) in allowed_channels:
+        return True
+
+    channel_name = event.get("channel_name") or event.get("channel")
+    if normalize_auto_listen_channel(channel_name) in allowed_channels:
+        return True
+
+    if resolver and channel_id:
+        resolved_name = resolver(channel_id)
+        if normalize_auto_listen_channel(resolved_name or "") in allowed_channels:
+            return True
+
+    return False
+
+
+def should_process_slack_event(event: dict, resolver=None) -> bool:
     event_type = event.get("type")
     if event_type == "app_mention":
         return True
     if event_type == "message" and is_direct_slack_conversation(event):
+        return True
+    if event_type == "message" and is_auto_listen_channel(event, resolver=resolver):
         return True
     return False
 
@@ -2430,10 +2468,10 @@ async def slack_events(request: Request):
 
     event = body.get("event", {})
 
-    if not should_process_slack_event(event):
+    if not should_process_slack_event(event, resolver=resolve_slack_channel_name):
         return {"ok": True}
 
-    if event.get("bot_id"):
+    if event.get("bot_id") or event.get("subtype") == "bot_message":
         return {"ok": True}
 
     slack_user_id = event.get("user")

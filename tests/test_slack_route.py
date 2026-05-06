@@ -107,7 +107,9 @@ def test_ignores_non_event_callback():
     assert response.json() == {"ok": True}
 
 
-def test_ignores_channel_message_without_app_mention():
+def test_ignores_channel_message_without_app_mention(monkeypatch):
+    monkeypatch.setattr(slack_route.settings, "BISHOP_AUTO_LISTEN_CHANNELS", "")
+
     response = client.post(
         "/slack/events",
         json=make_message_event(
@@ -320,6 +322,7 @@ def test_channel_message_without_app_mention_is_ignored(monkeypatch):
 
     monkeypatch.setattr(slack_route, "post_message", fail_post_message)
     monkeypatch.setattr(slack_route, "generate_reply", fail_generate_reply)
+    monkeypatch.setattr(slack_route.settings, "BISHOP_AUTO_LISTEN_CHANNELS", "")
 
     response = client.post(
         "/slack/events",
@@ -333,6 +336,87 @@ def test_channel_message_without_app_mention_is_ignored(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_trusted_channel_message_without_app_mention_is_processed(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["channel"] = channel
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Trusted channel reply."
+
+    monkeypatch.setattr(slack_route.settings, "BISHOP_AUTO_LISTEN_CHANNELS", "C123")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "append_working_session_turn", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "trusted")
+
+    response = client.post(
+        "/slack/events",
+        json=make_message_event(
+            "continue the channel plan",
+            event_id="evt-trusted-channel-no-mention",
+            channel_id="C123",
+            channel_type="channel",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["channel"] == "C123"
+    assert captured["text"] == "Trusted channel reply."
+    assert "continue the channel plan" in captured["message_to_model"]
+
+
+def test_trusted_channel_message_can_match_normalized_channel_name(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["channel"] = channel
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Named trusted channel reply."
+
+    monkeypatch.setattr(slack_route.settings, "BISHOP_AUTO_LISTEN_CHANNELS", "#Bishop Private")
+    monkeypatch.setattr(slack_route, "resolve_slack_channel_name", lambda channel_id: "bishop-private")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "append_working_session_turn", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "trusted")
+
+    response = client.post(
+        "/slack/events",
+        json=make_message_event(
+            "continue by channel name",
+            event_id="evt-trusted-channel-name-no-mention",
+            channel_id="C456",
+            channel_type="channel",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["channel"] == "C456"
+    assert captured["text"] == "Named trusted channel reply."
+    assert "continue by channel name" in captured["message_to_model"]
 
 
 @pytest.mark.parametrize(
