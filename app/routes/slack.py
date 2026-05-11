@@ -94,6 +94,15 @@ FOCUSED_SLACK_ANSWER_SHAPE = (
     "Do not end with generic requests for more context unless the question truly cannot be answered."
 )
 
+EXPLICIT_TOPIC_OVERRIDES_FOCUS_CONTEXT = (
+    "Topic rule: the current user message is the source of truth for topic. "
+    "Active focus is guidance only for ambiguous messages. "
+    "If the user explicitly names a brand, project, campaign, domain, or subject, answer that subject. "
+    "Mode controls thinking style, not topic ownership. "
+    "Do not redirect RTG, Rooms To Go, retail, TV, social, or campaign prompts into StemLab unless the user explicitly asks about "
+    "StemLab, stems, Ableton, DJ workflow, music production, remixing, or songs."
+)
+
 SHORT_FOLLOWUP_MESSAGES = {
     "yes",
     "yes please",
@@ -1876,7 +1885,8 @@ def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
     if focus == "stemlab":
         return (
             "Active focus: StemLab.\n"
-            "Answer through StemLab context even if the user does not say StemLab explicitly.\n\n"
+            "Use StemLab context only when the current user message is ambiguous.\n"
+            f"{EXPLICIT_TOPIC_OVERRIDES_FOCUS_CONTEXT}\n\n"
             f"{FOCUSED_SLACK_ANSWER_SHAPE}\n\n"
             f"User message:\n{user_text}"
         )
@@ -1884,6 +1894,7 @@ def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
     focus_contexts = {
         "bishop": (
             "Active focus: Bishop.\n"
+            f"{EXPLICIT_TOPIC_OVERRIDES_FOCUS_CONTEXT}\n"
             "Interpret ambiguous follow-ups through Bishop project, repo, product, "
             "config, Slack route, tests, deploy, and ops context.\n"
             "Give concrete Bishop next steps. Do not give generic productivity, "
@@ -1891,6 +1902,7 @@ def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
         ),
         "dj": (
             "Active focus: DJ.\n"
+            f"{EXPLICIT_TOPIC_OVERRIDES_FOCUS_CONTEXT}\n"
             "Interpret ambiguous follow-ups through DJ, music, set prep, tracks, "
             "transitions, crates, events, mixes, and creative workflow context.\n"
             "Give concrete DJ next steps. Do not give generic project, meeting, "
@@ -1898,6 +1910,7 @@ def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
         ),
         "website": (
             "Active focus: Website.\n"
+            f"{EXPLICIT_TOPIC_OVERRIDES_FOCUS_CONTEXT}\n"
             "Interpret ambiguous follow-ups through website, content, pages, "
             "site structure, conversion, SEO, and product presence context.\n"
             "Give concrete website next steps. Do not give generic productivity "

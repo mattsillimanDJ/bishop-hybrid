@@ -54,6 +54,26 @@ NO_WEAK_ENDING_MARKERS = [
     "or no follow-up line",
 ]
 
+EXPLICIT_TOPIC_MARKERS = [
+    "the current user message is the source of truth for topic",
+    "Active focus is only a default when the message is ambiguous",
+    "Mode controls thinking style, not topic ownership",
+    "If Matt explicitly names a brand, project, campaign, domain, or subject, answer that subject",
+    "Do not redirect RTG, Rooms To Go, retail, TV, social, or campaign prompts into StemLab",
+]
+
+CREATIVE_TASTE_FILTER_LABELS = [
+    "Safe",
+    "Solid",
+    "Strong",
+    "Brave",
+    "Too generic",
+    "Too expensive",
+    "Too hard to produce",
+    "Too social-only",
+    "Too TV-only",
+]
+
 
 @pytest.fixture(autouse=True)
 def use_temp_task_db(tmp_path, monkeypatch):
@@ -161,6 +181,40 @@ def test_get_mode_system_prompt_cmo_requires_diagnosis_before_ideas():
         "hook, pattern interrupt, story/proof, payoff, offer, and CTA",
     ]:
         assert marker in prompt, f"missing CMO diagnosis marker: {marker}"
+
+
+def test_creative_mode_prompt_includes_explicit_topic_overrides_focus_rule():
+    prompt = chat_service.get_mode_system_prompt("creative")
+
+    for marker in EXPLICIT_TOPIC_MARKERS:
+        assert marker in prompt, f"Creative prompt missing topic rule marker: {marker}"
+
+
+def test_cmo_mode_prompt_includes_explicit_topic_overrides_focus_rule():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    for marker in EXPLICIT_TOPIC_MARKERS:
+        assert marker in prompt, f"CMO prompt missing topic rule marker: {marker}"
+
+
+def test_creative_mode_prompt_includes_taste_filter_labels():
+    prompt = chat_service.get_mode_system_prompt("creative")
+
+    assert "Creative Taste Filter" in prompt
+    assert "polished-but-average ideas" in prompt
+    assert "weak naming" in prompt
+    assert "Declare Your Home Independents" in prompt
+    for label in CREATIVE_TASTE_FILTER_LABELS:
+        assert label in prompt, f"Creative prompt missing taste filter label: {label}"
+
+
+def test_cmo_mode_prompt_includes_taste_filter_labels():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    assert "Creative Taste Filter" in prompt
+    assert "weak territories" in prompt
+    for label in CREATIVE_TASTE_FILTER_LABELS:
+        assert label in prompt, f"CMO prompt missing taste filter label: {label}"
 
 
 def test_get_mode_system_prompt_stemlab_contains_music_product_lens():

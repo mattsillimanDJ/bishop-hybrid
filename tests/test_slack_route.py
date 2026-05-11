@@ -2731,7 +2731,10 @@ def test_stemlab_focus_influences_general_question_without_memory_capture(monkey
     assert "For simple questions, use 1 to 4 short paragraphs or bullets" in captured["message_to_model"]
     assert "prefer one recommendation, up to 3 priorities, and one clear next move" in captured["message_to_model"]
     assert "Active focus: StemLab." in captured["message_to_model"]
-    assert "Answer through StemLab context" in captured["message_to_model"]
+    assert "Use StemLab context only when the current user message is ambiguous." in captured["message_to_model"]
+    assert "Active focus is guidance only for ambiguous messages." in captured["message_to_model"]
+    assert "current user message is the source of truth for topic" in captured["message_to_model"]
+    assert "Do not redirect RTG, Rooms To Go, retail, TV, social, or campaign prompts into StemLab" in captured["message_to_model"]
     assert "Focused Slack answer shape: start with one direct recommendation." in captured["message_to_model"]
     assert "Use at most 2 or 3 short bullets." in captured["message_to_model"]
     assert "End with one concrete next move." in captured["message_to_model"]
@@ -2740,6 +2743,45 @@ def test_stemlab_focus_influences_general_question_without_memory_capture(monkey
     assert "what should we research next?" in captured["message_to_model"]
     assert captured["posted"][-1] == "Research next: validate Ableton-ready stem-pack pain with producers."
     assert memory_calls == []
+
+
+def test_stemlab_focus_frames_context_as_ambiguous_guidance_for_explicit_rtg_prompt(monkeypatch):
+    reset_route_state()
+    captured = {"posted": []}
+
+    def fake_post_message(channel, text):
+        captured["posted"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Use the RTG July 4 campaign as the topic."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "stemlab")
+    monkeypatch.setattr(slack_route, "add_memory", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "creative")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "Give me RTG July 4 creative TV and social ideas.",
+            event_id="evt-stemlab-focus-explicit-rtg",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert "Active focus: StemLab." in captured["message_to_model"]
+    assert "Active focus is guidance only for ambiguous messages." in captured["message_to_model"]
+    assert "If the user explicitly names a brand, project, campaign, domain, or subject, answer that subject." in captured["message_to_model"]
+    assert "Do not redirect RTG, Rooms To Go, retail, TV, social, or campaign prompts into StemLab" in captured["message_to_model"]
+    assert "Give me RTG July 4 creative TV and social ideas." in captured["message_to_model"]
+    assert captured["posted"] == ["Use the RTG July 4 campaign as the topic."]
 
 
 def test_bishop_focus_guides_general_question_to_model_without_side_effects(monkeypatch):
