@@ -30,7 +30,7 @@ from app.services.memory_service import (
     infer_memory_category,
     search_memories,
 )
-from app.services.mode_service import VALID_MODES, get_mode, set_mode
+from app.services.mode_service import VALID_MODES, get_mode, normalize_mode, set_mode
 from app.services.profile_service import (
     get_display_name_for_bishop_user_id,
     resolve_bishop_user_id,
@@ -617,6 +617,7 @@ def help_text() -> str:
         "* mode personal\n"
         "* mode website\n"
         "* mode cmo\n"
+        "* mode creative\n"
         "* mode stemlab\n"
         "* mode product\n"
         "* show mode\n"
@@ -624,6 +625,12 @@ def help_text() -> str:
         "* show modes\n"
         "* what mode should I use\n"
         "* recommend mode\n\n"
+        "CMO / Creative examples:\n"
+        "* concept TV and social ideas for July 4\n"
+        "* diagnose this campaign\n"
+        "* give me a campaign spine\n"
+        "* turn this into paid social tests\n"
+        "* write Veo prompts for this idea\n\n"
         "StemLab:\n"
         "* stemlab\n"
         "* stemlab plan\n"
@@ -687,8 +694,12 @@ def mode_guide_text() -> str:
         "* personal - Personal mode for life admin, private planning, and non-work context.\n"
         "* website - Website mode for site copy, structure, UX, and web launch work.\n"
         "* cmo - Marketing leadership mode for positioning, audience, channels, creative, and measurement.\n"
+        "* creative - Campaign concept mode for TV, social, scripts, retail, paid social, and AI video prompts.\n"
         "* stemlab - Music-tech and EDM stem workflow mode for product, production, and DJ-ready output.\n"
         "* product - Product strategy mode for MVP scope, users, workflows, monetization, and tradeoffs.\n\n"
+        "Aliases into creative mode: `mode concept`, `mode concept lab`, `mode performance creative`.\n"
+        "Examples: `concept TV and social ideas for July 4`, `diagnose this campaign`, "
+        "`give me a campaign spine`, `turn this into paid social tests`, `write Veo prompts for this idea`.\n\n"
         "Use `mode <name>` to switch modes. Use `show mode` to see the current mode."
     )
 
@@ -701,6 +712,7 @@ def mode_recommendation_text() -> str:
         "* personal: use for family, relationship, life admin, and personal planning\n"
         "* website: use for site structure, copy, UX, SEO, and launch planning\n"
         "* cmo: use for marketing strategy, positioning, channels, creative, budget, and measurement\n"
+        "* creative: use for TV/social concepts, campaign platforms, scripts, paid social tests, retail ideas, and AI video prompts\n"
         "* stemlab: use for EDM product, stems, Ableton, music workflow, and DJ/producer output\n"
         "* product: use for product ideas, MVP scope, workflows, monetization, and tradeoffs\n\n"
         "Tell me what you are working on and I can suggest the best mode."
@@ -2987,15 +2999,22 @@ async def slack_events(request: Request):
             return {"ok": True}
 
         if lowered.startswith("mode "):
-            requested_mode = lowered.replace("mode ", "", 1).strip()
+            raw_requested_mode = lowered.replace("mode ", "", 1).strip()
+            requested_mode = normalize_mode(raw_requested_mode)
 
             if requested_mode in VALID_MODES:
                 set_mode(user_id, requested_mode)
                 if requested_mode == "cmo":
                     response_text = (
                         "CMO mode active.\n"
-                        "I’ll think in terms of audience, positioning, offer, "
-                        "channel, creative, budget, and measurable next action."
+                        "I’ll diagnose the business or creative constraint first, then think in terms of revenue, "
+                        "audience, offer, channel, creative, production reality, and measurable next action."
+                    )
+                elif requested_mode == "creative":
+                    response_text = (
+                        "Creative mode active.\n"
+                        "I’ll diagnose before concepting, then focus on TV, social, retail, paid creative, "
+                        "campaign spines, scripts, AI video prompts, production feasibility, and testable next moves."
                     )
                 elif requested_mode == "stemlab":
                     response_text = (

@@ -133,7 +133,7 @@ def test_website_mode_inherits_no_weak_ending_instruction():
 def test_get_mode_system_prompt_cmo_contains_lens_and_keywords():
     prompt = chat_service.get_mode_system_prompt("cmo")
 
-    assert "CMO mode" in prompt
+    assert "BISHOP MODE: CMO + EXPERT CREATIVE TEAM" in prompt
     for keyword in [
         "audience",
         "positioning",
@@ -146,6 +146,21 @@ def test_get_mode_system_prompt_cmo_contains_lens_and_keywords():
         assert keyword in prompt, f"missing CMO lens keyword: {keyword}"
 
     assert "Do not over-format unless the user asks for a plan." in prompt
+
+
+def test_get_mode_system_prompt_cmo_requires_diagnosis_before_ideas():
+    prompt = chat_service.get_mode_system_prompt("cmo")
+
+    for marker in [
+        "Diagnose the real business or creative constraint before concepting",
+        "CMO Diagnosis",
+        "Primary Constraint",
+        "Campaign Spine",
+        "Performance Creative Layer",
+        "Production Reality Check",
+        "hook, pattern interrupt, story/proof, payoff, offer, and CTA",
+    ]:
+        assert marker in prompt, f"missing CMO diagnosis marker: {marker}"
 
 
 def test_get_mode_system_prompt_stemlab_contains_music_product_lens():
@@ -166,6 +181,32 @@ def test_get_mode_system_prompt_stemlab_contains_music_product_lens():
 
 def test_product_is_in_valid_modes():
     assert "product" in mode_service.VALID_MODES
+
+
+def test_creative_is_in_valid_modes():
+    assert "creative" in mode_service.VALID_MODES
+
+
+def test_mode_aliases_normalize_to_creative():
+    assert mode_service.normalize_mode("concept") == "creative"
+    assert mode_service.normalize_mode("concept lab") == "creative"
+    assert mode_service.normalize_mode("performance creative") == "creative"
+
+
+def test_get_mode_system_prompt_creative_uses_cmo_creative_brain():
+    prompt = chat_service.get_mode_system_prompt("creative")
+
+    for marker in [
+        "Creative mode",
+        "Diagnose before ideas",
+        "TV ideas",
+        "paid social concepts",
+        "AI video prompt concepts",
+        "CMO Brain v2",
+        "CMO + Expert Creative Team Operating Role",
+        "Primary Constraint",
+    ]:
+        assert marker in prompt, f"missing Creative mode marker: {marker}"
 
 
 def test_get_mode_system_prompt_product_contains_product_founder_lens():
@@ -219,11 +260,40 @@ def test_generate_reply_in_cmo_mode_passes_cmo_lens_to_model(monkeypatch):
     )
 
     assert result == "strategic reply"
-    assert "CMO mode" in captured["system_prompt"]
+    assert "BISHOP MODE: CMO + EXPERT CREATIVE TEAM" in captured["system_prompt"]
     assert "audience" in captured["system_prompt"]
     assert "positioning" in captured["system_prompt"]
     assert "measurable next action" in captured["system_prompt"]
     assert "How should we launch the new event series?" in captured["user_prompt"]
+
+
+def test_generate_reply_in_creative_mode_passes_creative_lens_to_model(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "creative")
+    monkeypatch.setattr(
+        chat_service, "generate_memory_context", lambda user_id, message: "No relevant memory found."
+    )
+    monkeypatch.setattr(chat_service, "generate_task_context", lambda user_id: "No pending tasks.")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    captured = {}
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured["system_prompt"] = system_prompt
+        captured["user_prompt"] = user_prompt
+        return "creative reply"
+
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    result = chat_service.generate_reply(
+        user_id="U123",
+        message="Concept TV and social ideas for July 4.",
+    )
+
+    assert result == "creative reply"
+    assert "Creative mode" in captured["system_prompt"]
+    assert "Diagnose before ideas" in captured["system_prompt"]
+    assert "CMO Brain v2" in captured["system_prompt"]
+    assert "Concept TV and social ideas for July 4." in captured["user_prompt"]
 
 
 def test_generate_reply_in_stemlab_mode_passes_stemlab_lens_to_model(monkeypatch):
@@ -381,7 +451,7 @@ def test_generate_reply_in_default_mode_does_not_include_cmo_lens(monkeypatch):
 def test_cmo_mode_system_prompt_includes_cmo_brain():
     prompt = chat_service.get_mode_system_prompt("cmo")
 
-    assert "CMO Brain v1" in prompt
+    assert "CMO Brain v2" in prompt
     assert "Rooms To Go" in prompt
     assert "coordinated room package" in prompt
 
@@ -447,7 +517,7 @@ def test_stemlab_mode_system_prompt_does_not_include_product_brain_guidance():
 def test_default_mode_system_prompt_does_not_include_cmo_brain():
     prompt = chat_service.get_mode_system_prompt("default")
 
-    assert "CMO Brain v1" not in prompt
+    assert "CMO Brain v2" not in prompt
     assert "StemLab Brain v1" not in prompt
 
 
@@ -456,8 +526,8 @@ def test_cmo_mode_system_prompt_resilient_to_missing_brain_file(monkeypatch):
 
     prompt = chat_service.get_mode_system_prompt("cmo")
 
-    assert "CMO mode" in prompt
-    assert "CMO Brain v1" not in prompt
+    assert "BISHOP MODE: CMO + EXPERT CREATIVE TEAM" in prompt
+    assert "CMO Brain v2" not in prompt
 
 
 def test_stemlab_mode_system_prompt_resilient_to_missing_brain_file(monkeypatch):
@@ -478,6 +548,8 @@ def test_cmo_mode_system_prompt_includes_slack_concision_shape():
         "Next move:",
         "2 to 3 bullets",
         "plan, strategy, rollout, deck, full breakdown, outline, or deep dive",
+        "CMO Diagnosis",
+        "Primary Constraint",
     ]:
         assert marker in prompt, f"missing CMO Slack concision marker: {marker}"
 
@@ -485,7 +557,7 @@ def test_cmo_mode_system_prompt_includes_slack_concision_shape():
 def test_default_mode_system_prompt_still_excludes_cmo_brain():
     prompt = chat_service.get_mode_system_prompt("default")
 
-    assert "CMO Brain v1" not in prompt
+    assert "CMO Brain v2" not in prompt
     assert "StemLab Brain v1" not in prompt
 
 

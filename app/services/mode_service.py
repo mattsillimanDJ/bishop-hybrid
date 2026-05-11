@@ -4,7 +4,27 @@ from app.services.database_path import DEFAULT_DB_PATH, get_db_path
 
 DB_PATH = DEFAULT_DB_PATH
 
-VALID_MODES = {"default", "work", "personal", "website", "cmo", "stemlab", "product"}
+VALID_MODES = {
+    "default",
+    "work",
+    "personal",
+    "website",
+    "cmo",
+    "creative",
+    "stemlab",
+    "product",
+}
+
+MODE_ALIASES = {
+    "concept": "creative",
+    "concept lab": "creative",
+    "performance creative": "creative",
+}
+
+
+def normalize_mode(mode: str) -> str:
+    normalized = mode.strip().lower()
+    return MODE_ALIASES.get(normalized, normalized)
 
 
 def init_mode_table() -> None:
@@ -36,6 +56,8 @@ def get_mode(user_id: str) -> str:
 
 
 def set_mode(user_id: str, mode: str) -> str:
+    mode = normalize_mode(mode)
+
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode: {mode}")
 

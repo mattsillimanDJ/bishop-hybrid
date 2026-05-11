@@ -588,6 +588,7 @@ def test_help_command(monkeypatch):
     assert "Tasks:" in captured["text"]
     assert "Modes:" in captured["text"]
     assert "* mode cmo" in captured["text"]
+    assert "* mode creative" in captured["text"]
     assert "* mode stemlab" in captured["text"]
     assert "* mode product" in captured["text"]
     assert "* modes" in captured["text"]
@@ -596,6 +597,12 @@ def test_help_command(monkeypatch):
     assert "* recommend mode" in captured["text"]
     assert "* show mode\n* modes\n* show modes" in captured["text"]
     assert "* show mode\n\n* modes" not in captured["text"]
+    assert "CMO / Creative examples:" in captured["text"]
+    assert "* concept TV and social ideas for July 4" in captured["text"]
+    assert "* diagnose this campaign" in captured["text"]
+    assert "* give me a campaign spine" in captured["text"]
+    assert "* turn this into paid social tests" in captured["text"]
+    assert "* write Veo prompts for this idea" in captured["text"]
     assert "StemLab:" in captured["text"]
     assert "* stemlab" in captured["text"]
     assert "* stemlab plan" in captured["text"]
@@ -665,8 +672,11 @@ def test_modes_command_returns_live_mode_guide(monkeypatch):
     assert "* personal -" in text
     assert "* website -" in text
     assert "* cmo -" in text
+    assert "* creative -" in text
     assert "* stemlab -" in text
     assert "* product -" in text
+    assert "mode concept" in text
+    assert "write Veo prompts for this idea" in text
     assert "founder" not in text.lower()
     assert "Use `show mode` to see the current mode." in text
 
@@ -717,6 +727,7 @@ def test_what_mode_should_i_use_returns_mode_recommendation(monkeypatch):
     assert "* personal: use for family, relationship, life admin, and personal planning" in text
     assert "* website: use for site structure, copy, UX, SEO, and launch planning" in text
     assert "* cmo: use for marketing strategy, positioning, channels, creative, budget, and measurement" in text
+    assert "* creative: use for TV/social concepts, campaign platforms, scripts, paid social tests, retail ideas, and AI video prompts" in text
     assert "* stemlab: use for EDM product, stems, Ableton, music workflow, and DJ/producer output" in text
     assert "* product: use for product ideas, MVP scope, workflows, monetization, and tradeoffs" in text
     assert text.endswith("Tell me what you are working on and I can suggest the best mode.")
@@ -2073,9 +2084,67 @@ def test_mode_cmo_returns_strategic_acknowledgement(monkeypatch):
     assert set_mode_calls == [("U123", "cmo")]
     assert captured["text"] == (
         "CMO mode active.\n"
-        "I’ll think in terms of audience, positioning, offer, channel, "
-        "creative, budget, and measurable next action."
+        "I’ll diagnose the business or creative constraint first, then think in terms of revenue, "
+        "audience, offer, channel, creative, production reality, and measurable next action."
     )
+
+
+def test_mode_creative_returns_creative_acknowledgement(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_mode_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_mode(user_id, mode):
+        set_mode_calls.append((user_id, mode))
+        return mode
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_mode", fake_set_mode)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("mode creative", event_id="evt-mode-creative")
+    )
+
+    assert response.status_code == 200
+    assert set_mode_calls == [("U123", "creative")]
+    assert captured["text"] == (
+        "Creative mode active.\n"
+        "I’ll diagnose before concepting, then focus on TV, social, retail, paid creative, "
+        "campaign spines, scripts, AI video prompts, production feasibility, and testable next moves."
+    )
+
+
+def test_mode_concept_alias_routes_to_creative(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_mode_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_mode(user_id, mode):
+        set_mode_calls.append((user_id, mode))
+        return mode
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_mode", fake_set_mode)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("mode concept lab", event_id="evt-mode-concept-lab")
+    )
+
+    assert response.status_code == 200
+    assert set_mode_calls == [("U123", "creative")]
+    assert captured["text"].startswith("Creative mode active.")
 
 
 def test_mode_stemlab_returns_music_product_acknowledgement(monkeypatch):
@@ -2184,6 +2253,7 @@ def test_unknown_mode_listing_includes_cmo(monkeypatch):
     text = captured["text"]
     assert text.startswith("Unknown mode. Available modes:")
     assert "cmo" in text
+    assert "creative" in text
     assert "default" in text
     assert "work" in text
     assert "personal" in text
