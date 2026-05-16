@@ -629,6 +629,7 @@ def help_text() -> str:
         "* mode creative\n"
         "* mode stemlab\n"
         "* mode product\n"
+        "* mode events\n"
         "* show mode\n"
         "* modes\n"
         "* show modes\n"
@@ -675,6 +676,7 @@ def help_text() -> str:
         "* stemlab risks\n\n"
         "Focus:\n"
         "* focus stemlab\n"
+        "* focus events\n"
         "* switch focus to stemlab\n"
         "* set focus stemlab\n"
         "* current focus\n"
@@ -705,7 +707,8 @@ def mode_guide_text() -> str:
         "* cmo - Marketing leadership mode for positioning, audience, channels, creative, and measurement.\n"
         "* creative - Campaign concept mode for TV, social, scripts, retail, paid social, and AI video prompts.\n"
         "* stemlab - Music-tech and EDM stem workflow mode for product, production, and DJ-ready output.\n"
-        "* product - Product strategy mode for MVP scope, users, workflows, monetization, and tradeoffs.\n\n"
+        "* product - Product strategy mode for MVP scope, users, workflows, monetization, and tradeoffs.\n"
+        "* events - Event production mode for venues, run-of-show, vendors, talent, budgets, guest flow, and recaps.\n\n"
         "Aliases into creative mode: `mode concept`, `mode concept lab`, `mode performance creative`.\n"
         "Examples: `concept TV and social ideas for July 4`, `diagnose this campaign`, "
         "`give me a campaign spine`, `turn this into paid social tests`, `write Veo prompts for this idea`.\n\n"
@@ -723,7 +726,8 @@ def mode_recommendation_text() -> str:
         "* cmo: use for marketing strategy, positioning, channels, creative, budget, and measurement\n"
         "* creative: use for TV/social concepts, campaign platforms, scripts, paid social tests, retail ideas, and AI video prompts\n"
         "* stemlab: use for EDM product, stems, Ableton, music workflow, and DJ/producer output\n"
-        "* product: use for product ideas, MVP scope, workflows, monetization, and tradeoffs\n\n"
+        "* product: use for product ideas, MVP scope, workflows, monetization, and tradeoffs\n"
+        "* events: use for event production, venues, run-of-show, vendors, talent, budgets, guest flow, and recaps\n\n"
         "Tell me what you are working on and I can suggest the best mode."
     )
 
@@ -1815,6 +1819,9 @@ def normalize_natural_focus_target(target: str) -> str | None:
         "dj stuff": "dj",
         "website": "website",
         "web site": "website",
+        "events": "events",
+        "event": "events",
+        "event planning": "events",
     }
     return aliases.get(normalized)
 
@@ -1834,6 +1841,7 @@ def extract_natural_focus_intent(message: str) -> tuple[str, str | None] | None:
     patterns = [
         r"^(?:let(?:'|’)?s|let us)\s+work\s+on\s+(.+?)(?:\s+for\s+(?:a\s+)?bit|\s+for\s+now)?\s*[.!;:]*$",
         r"^back\s+to\s+(.+?)\s*[.!;:]*$",
+        r"^switch\s+(?:us\s+)?to\s+(.+?)\s*[.!;:]*$",
         r"^switch\s+(?:us\s+)?over\s+to\s+(.+?)\s*[.!;:]*$",
         r"^(?:let(?:'|’)?s|let us)\s+talk\s+(.+?)\s*[.!;:]*$",
     ]
@@ -1870,6 +1878,7 @@ def format_focus_name(focus: str) -> str:
         "bishop": "Bishop",
         "dj": "DJ",
         "website": "Website",
+        "events": "Events",
     }
     return names.get(focus, focus)
 
@@ -1915,6 +1924,14 @@ def apply_active_focus_to_message(user_text: str, focus: str | None) -> str:
             "site structure, conversion, SEO, and product presence context.\n"
             "Give concrete website next steps. Do not give generic productivity "
             "or product-management advice."
+        ),
+        "events": (
+            "Active focus: Events.\n"
+            f"{EXPLICIT_TOPIC_OVERRIDES_FOCUS_CONTEXT}\n"
+            "Interpret ambiguous follow-ups through event production, venues, run-of-show, "
+            "vendors, staffing, talent, budgets, guest flow, hospitality, risk, and recap context.\n"
+            "Give concrete event production next steps. Do not give generic productivity "
+            "or broad planning advice."
         ),
     }
     context = focus_contexts.get(focus)
@@ -3043,6 +3060,13 @@ async def slack_events(request: Request):
                         "I’ll think like a product strategist, founder, operator, and practical builder. "
                         "I’ll focus on user pain, MVP scope, positioning, workflows, monetization, "
                         "test plans, tradeoffs, and the next useful decision."
+                    )
+                elif requested_mode == "events":
+                    response_text = (
+                        "Events mode active.\n"
+                        "I’ll think like a practical event producer and production lead. "
+                        "I’ll focus on venues, run-of-show, vendors, talent, staffing, budgets, "
+                        "guest flow, hospitality, risk, recaps, and the next decision that moves production forward."
                     )
                 else:
                     response_text = f"Mode set to {requested_mode}."

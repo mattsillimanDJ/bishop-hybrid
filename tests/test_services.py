@@ -28,6 +28,18 @@ PRODUCT_BRAIN_MARKERS = [
     "Decision memo",
 ]
 
+EVENTS_BRAIN_MARKERS = [
+    "Events Brain v1",
+    "Event Producer Operating Role",
+    "run-of-show",
+    "venue logistics",
+    "vendor timing",
+    "hospitality",
+    "talent buyer",
+    "budget",
+    "post-event recap",
+]
+
 
 STEMLAB_PRODUCT_THESIS = (
     "StemLab is Matt’s AI product idea for DJs, EDM producers, remixers, and creators. "
@@ -127,6 +139,13 @@ def test_product_mode_inherits_no_weak_ending_instruction():
 
     for marker in NO_WEAK_ENDING_MARKERS:
         assert marker in prompt, f"Product prompt missing no-weak-ending marker: {marker}"
+
+
+def test_events_mode_inherits_no_weak_ending_instruction():
+    prompt = chat_service.get_mode_system_prompt("events")
+
+    for marker in NO_WEAK_ENDING_MARKERS:
+        assert marker in prompt, f"Events prompt missing no-weak-ending marker: {marker}"
 
 
 def test_stemlab_mode_inherits_no_weak_ending_instruction():
@@ -237,6 +256,10 @@ def test_product_is_in_valid_modes():
     assert "product" in mode_service.VALID_MODES
 
 
+def test_events_is_in_valid_modes():
+    assert "events" in mode_service.VALID_MODES
+
+
 def test_creative_is_in_valid_modes():
     assert "creative" in mode_service.VALID_MODES
 
@@ -281,6 +304,25 @@ def test_get_mode_system_prompt_product_contains_product_founder_lens():
         "fastest test of demand",
     ]:
         assert keyword in prompt, f"missing Product lens keyword: {keyword}"
+
+
+def test_get_mode_system_prompt_events_contains_event_producer_lens():
+    prompt = chat_service.get_mode_system_prompt("events")
+
+    assert "Events mode" in prompt
+    for keyword in [
+        "event producer",
+        "production lead",
+        "hospitality operator",
+        "talent buyer",
+        "vendor manager",
+        "budget keeper",
+        "run-of-show planning",
+        "venue logistics",
+        "guest flow",
+        "production constraint",
+    ]:
+        assert keyword in prompt, f"missing Events lens keyword: {keyword}"
 
 
 def test_get_mode_system_prompt_default_does_not_contain_cmo_lens():
@@ -531,6 +573,13 @@ def test_product_mode_system_prompt_includes_product_brain():
 
     for marker in PRODUCT_BRAIN_MARKERS:
         assert marker in prompt, f"missing Product brain marker: {marker}"
+
+
+def test_events_mode_system_prompt_includes_events_brain():
+    prompt = chat_service.get_mode_system_prompt("events")
+
+    for marker in EVENTS_BRAIN_MARKERS:
+        assert marker in prompt, f"missing Events brain marker: {marker}"
 
 
 def test_default_mode_system_prompt_does_not_include_stemlab_template_guidance():

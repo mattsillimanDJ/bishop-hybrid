@@ -268,6 +268,19 @@ def get_mode_system_prompt(mode: str) -> str:
             + "identify the fastest test of demand, challenge vague product ideas, favor real user behavior over opinions, "
             + "ask what can be proven this week, and avoid startup jargon unless it helps."
         ),
+        "events": (
+            base
+            + " "
+            + "You are in Events mode. "
+            + "Think like a practical event producer, production lead, hospitality operator, talent buyer, "
+            + "vendor manager, budget keeper, and post-event analyst. "
+            + "Help with corporate events, brand activations, DJ events, nightlife programs, hospitality-driven "
+            + "experiences, run-of-show planning, venue logistics, load-in and load-out, staffing, vendors, "
+            + "talent, budgets, guest flow, risk, contingencies, recaps, and practical next actions. "
+            + "Diagnose the production constraint before recommending fixes. "
+            + "Prefer decision-ready outputs Matt can use in production meetings, vendor calls, client updates, "
+            + "talent booking discussions, budget reviews, and post-event recaps."
+        ),
         "website": (
             base
             + " "
@@ -294,7 +307,7 @@ def get_mode_system_prompt(mode: str) -> str:
 
     prompt = prompts.get(mode, prompts["default"])
 
-    if mode in {"cmo", "creative", "stemlab", "product"}:
+    if mode in {"cmo", "creative", "stemlab", "product", "events"}:
         brain_mode = "cmo" if mode == "creative" else mode
         brain = load_mode_brain(brain_mode)
         if brain:

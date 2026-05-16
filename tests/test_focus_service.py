@@ -6,10 +6,12 @@ def test_set_and_get_active_focus_is_user_and_lane_scoped(tmp_path, monkeypatch)
 
     focus_service.set_active_focus("U123", "work", "stemlab")
     focus_service.set_active_focus("U123", "dj", "dj")
+    focus_service.set_active_focus("U123", "matt", "events")
     focus_service.set_active_focus("U999", "work", "website")
 
     assert focus_service.get_active_focus("U123", "work") == "stemlab"
     assert focus_service.get_active_focus("U123", "dj") == "dj"
+    assert focus_service.get_active_focus("U123", "matt") == "events"
     assert focus_service.get_active_focus("U999", "work") == "website"
 
 

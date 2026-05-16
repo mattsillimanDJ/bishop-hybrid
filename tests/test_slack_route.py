@@ -591,6 +591,7 @@ def test_help_command(monkeypatch):
     assert "* mode creative" in captured["text"]
     assert "* mode stemlab" in captured["text"]
     assert "* mode product" in captured["text"]
+    assert "* mode events" in captured["text"]
     assert "* modes" in captured["text"]
     assert "* show modes" in captured["text"]
     assert "* what mode should I use" in captured["text"]
@@ -629,6 +630,7 @@ def test_help_command(monkeypatch):
     assert "* stemlab web research" in captured["text"]
     assert "* stemlab reddit search plan" in captured["text"]
     assert "* stemlab source backed finding" in captured["text"]
+    assert "* focus events" in captured["text"]
     assert "System:" in captured["text"]
     assert "show lane" in captured["text"]
     assert "what lane am i in" in captured["text"]
@@ -675,6 +677,7 @@ def test_modes_command_returns_live_mode_guide(monkeypatch):
     assert "* creative -" in text
     assert "* stemlab -" in text
     assert "* product -" in text
+    assert "* events -" in text
     assert "mode concept" in text
     assert "write Veo prompts for this idea" in text
     assert "founder" not in text.lower()
@@ -730,6 +733,7 @@ def test_what_mode_should_i_use_returns_mode_recommendation(monkeypatch):
     assert "* creative: use for TV/social concepts, campaign platforms, scripts, paid social tests, retail ideas, and AI video prompts" in text
     assert "* stemlab: use for EDM product, stems, Ableton, music workflow, and DJ/producer output" in text
     assert "* product: use for product ideas, MVP scope, workflows, monetization, and tradeoffs" in text
+    assert "* events: use for event production, venues, run-of-show, vendors, talent, budgets, guest flow, and recaps" in text
     assert text.endswith("Tell me what you are working on and I can suggest the best mode.")
     assert "founder" not in text.lower()
 
@@ -2212,6 +2216,38 @@ def test_mode_product_returns_product_acknowledgement(monkeypatch):
     )
 
 
+def test_mode_events_returns_event_production_acknowledgement(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_mode_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_mode(user_id, mode):
+        set_mode_calls.append((user_id, mode))
+        return mode
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_mode", fake_set_mode)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events", json=make_event("mode events", event_id="evt-mode-events")
+    )
+
+    assert response.status_code == 200
+    assert set_mode_calls == [("U123", "events")]
+    assert captured["text"] == (
+        "Events mode active.\n"
+        "I’ll think like a practical event producer and production lead. "
+        "I’ll focus on venues, run-of-show, vendors, talent, staffing, budgets, "
+        "guest flow, hospitality, risk, recaps, and the next decision that moves production forward."
+    )
+
+
 def test_mode_default_still_returns_plain_acknowledgement(monkeypatch):
     reset_route_state()
     captured = {}
@@ -2253,6 +2289,7 @@ def test_unknown_mode_listing_includes_cmo(monkeypatch):
     text = captured["text"]
     assert text.startswith("Unknown mode. Available modes:")
     assert "cmo" in text
+    assert "events" in text
     assert "creative" in text
     assert "default" in text
     assert "work" in text
@@ -2352,6 +2389,35 @@ def test_focus_stemlab_sets_focus_for_user_and_lane(monkeypatch):
     assert response.status_code == 200
     assert set_focus_calls == [("U123", "work", "stemlab")]
     assert captured["text"] == "StemLab is now the focus here."
+
+
+def test_focus_events_sets_focus_for_user_and_lane(monkeypatch):
+    reset_route_state()
+    captured = {}
+    set_focus_calls = []
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_set_active_focus(user_id, lane, focus):
+        set_focus_calls.append((user_id, lane, focus))
+        return focus
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "set_active_focus", fake_set_active_focus)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("focus events", event_id="evt-focus-events"),
+    )
+
+    assert response.status_code == 200
+    assert set_focus_calls == [("U123", "work", "events")]
+    assert captured["text"] == "Events is now the focus here."
 
 
 def test_switch_focus_to_stemlab_sets_focus(monkeypatch):
@@ -2481,7 +2547,9 @@ def test_natural_focus_phrases_set_focus(monkeypatch):
 
     cases = [
         ("let’s work on StemLab for a bit", "stemlab", "StemLab is now the focus here."),
+        ("let’s work on events", "events", "Events is now the focus here."),
         ("back to Bishop", "bishop", "Bishop is now the focus here."),
+        ("switch to events", "events", "Events is now the focus here."),
         ("switch us over to DJ stuff", "dj", "DJ is now the focus here."),
         ("let’s talk website", "website", "Website is now the focus here."),
     ]
@@ -2942,6 +3010,54 @@ def test_website_focus_guides_general_question_to_model_without_side_effects(mon
     assert "Do not end with generic requests for more context" in captured["message_to_model"]
     assert "what should we improve next?" in captured["message_to_model"]
     assert captured["posted"] == ["Improve the homepage proof section."]
+    assert memory_calls == []
+    assert task_calls == []
+
+
+def test_events_focus_guides_general_question_to_model_without_side_effects(monkeypatch):
+    reset_route_state()
+    captured = {"posted": []}
+    memory_calls = []
+    task_calls = []
+
+    def fake_post_message(channel, text):
+        captured["posted"].append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply(user_id, message):
+        captured["message_to_model"] = message
+        return "Lock the venue production constraints first."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply", fake_generate_reply)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "events")
+    monkeypatch.setattr(slack_route, "add_memory", lambda **kwargs: memory_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "add_task_for_lane", lambda **kwargs: task_calls.append(kwargs))
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what should we lock next?", event_id="evt-events-focus-general"),
+    )
+
+    assert response.status_code == 200
+    assert captured["message_to_model"].startswith("Slack style:")
+    assert "Active focus: Events." in captured["message_to_model"]
+    assert (
+        "Interpret ambiguous follow-ups through event production, venues, run-of-show, "
+        "vendors, staffing, talent, budgets, guest flow, hospitality, risk, and recap context."
+    ) in captured["message_to_model"]
+    assert (
+        "Give concrete event production next steps. Do not give generic productivity "
+        "or broad planning advice."
+    ) in captured["message_to_model"]
+    assert "Focused Slack answer shape: start with one direct recommendation." in captured["message_to_model"]
+    assert "what should we lock next?" in captured["message_to_model"]
+    assert captured["posted"] == ["Lock the venue production constraints first."]
     assert memory_calls == []
     assert task_calls == []
 

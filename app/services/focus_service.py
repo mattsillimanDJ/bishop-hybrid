@@ -4,7 +4,7 @@ from app.services.database_path import DEFAULT_DB_PATH, get_db_path
 
 DB_PATH = DEFAULT_DB_PATH
 
-VALID_FOCUSES = {"stemlab", "work", "dj", "personal", "bishop", "website"}
+VALID_FOCUSES = {"stemlab", "work", "dj", "personal", "bishop", "website", "events"}
 
 
 def normalize_focus(focus: str) -> str:

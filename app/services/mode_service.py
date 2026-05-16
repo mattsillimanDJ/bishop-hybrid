@@ -13,6 +13,7 @@ VALID_MODES = {
     "creative",
     "stemlab",
     "product",
+    "events",
 }
 
 MODE_ALIASES = {
