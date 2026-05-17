@@ -29,6 +29,7 @@ def reset_route_state():
 def _stub_common(monkeypatch, lane: str = "matt"):
     monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
     monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
     monkeypatch.setattr(
         slack_route,
         "get_lane_from_channel",
@@ -111,7 +112,7 @@ def test_attention_command_routes_and_includes_tasks_and_memory(monkeypatch):
     assert "• ship the attention dashboard" in text
     assert "• check PR #42" in text
     assert (
-        "Recommended next move: Start with pending task: finish the attention command"
+        "Recommended next move: Start with: finish the attention command"
         in text
     )
 
@@ -222,7 +223,7 @@ def test_attention_command_omits_memory_section_when_only_tasks(monkeypatch):
     assert "2026-04-24" not in text
     assert "Working memory:" not in text
     assert "Operational context" not in text
-    assert "Recommended next move: Start with pending task: only task" in text
+    assert "Recommended next move: Start with: only task" in text
 
 
 def test_attention_command_omits_task_section_when_only_memory(monkeypatch):
@@ -270,9 +271,144 @@ def test_attention_command_omits_task_section_when_only_memory(monkeypatch):
     assert "• lone working memory item" in text
     assert "Pending tasks" not in text
     assert (
-        "Recommended next move: Review this operational context first: "
-        "lone working memory item"
+        "Recommended next move: Turn the top context item into a concrete next action."
     ) in text
+
+
+def test_attention_command_truncates_operational_context_and_next_move(monkeypatch):
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, lane=None, status="pending", limit=10: [],
+    )
+    long_context = (
+        "StemLab operational context: "
+        + "this is a long status dump that should not be repeated in full " * 8
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane=None, limit=20: [
+            {
+                "id": 1,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "note",
+                "content": long_context,
+            }
+        ],
+    )
+
+    response = slack_route.build_attention_response(user_id="matt", lane="work")
+
+    assert "• StemLab operational context:" in response
+    assert long_context not in response
+    assert (
+        "Recommended next move: Turn the top context item into a concrete next action."
+        in response
+    )
+
+
+def test_attention_command_prioritizes_active_focus(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    _stub_common(monkeypatch, lane="work")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "events")
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, lane=None, status="pending", limit=10: [
+            {"task_text": "finish the StemLab prototype"},
+            {"task_text": "lock the event venue shortlist"},
+        ],
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane=None, limit=20: [
+            {
+                "id": 1,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "note",
+                "content": "StemLab needs Ableton-ready stem pack validation.",
+            },
+            {
+                "id": 2,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "note",
+                "content": "Event run-of-show needs the sponsor handoff tightened.",
+            },
+        ],
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what should I focus on", event_id="evt-attention-focus-events"),
+    )
+
+    assert response.status_code == 200
+    text = captured["text"]
+    assert text.startswith("Here’s what needs your attention for Events in the work lane:")
+    assert "• lock the event venue shortlist" in text
+    assert "• Event run-of-show needs the sponsor handoff tightened." in text
+    assert "StemLab" not in text
+    assert "Recommended next move: Start with: lock the event venue shortlist" in text
+
+
+def test_attention_command_active_focus_empty_state_is_clear(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    _stub_common(monkeypatch, lane="work")
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: "events")
+    monkeypatch.setattr(
+        slack_route,
+        "get_tasks",
+        lambda user_id, lane=None, status="pending", limit=10: [
+            {"task_text": "finish the StemLab prototype"},
+        ],
+    )
+    monkeypatch.setattr(
+        slack_route,
+        "get_memories",
+        lambda user_id, lane=None, limit=20: [
+            {
+                "id": 1,
+                "owner_user_id": user_id,
+                "lane": lane,
+                "visibility": "private",
+                "category": "note",
+                "content": "StemLab needs Ableton-ready stem pack validation.",
+            }
+        ],
+    )
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("help me prioritize", event_id="evt-attention-focus-empty"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"] == (
+        "Nothing urgent for Events in the work lane right now.\n\n"
+        "Recommended next move: Stay in Events and define the next concrete task."
+    )
 
 
 def test_attention_command_is_lane_scoped(monkeypatch):
@@ -352,7 +488,7 @@ def test_attention_command_aliases_route_to_attention_response(monkeypatch):
             "Here’s what needs your attention in the work lane:"
         )
         assert (
-            "Recommended next move: Start with pending task: review the work queue"
+            "Recommended next move: Start with: review the work queue"
             in captured["text"]
         )
 
@@ -381,7 +517,7 @@ def test_attention_pending_tasks_render_as_plain_bullets(monkeypatch):
         "Pending tasks\n"
         "• follow up on Bishop attention dashboard\n"
         "\n"
-        "Recommended next move: Start with pending task: follow up on Bishop attention dashboard"
+        "Recommended next move: Start with: follow up on Bishop attention dashboard"
     )
 
 
@@ -446,7 +582,7 @@ def test_attention_does_not_show_durable_preference_as_urgent(monkeypatch):
     assert "Operational context:" not in text
     assert "• follow up on the Bishop attention dashboard" in text
     assert "Matt wants Bishop to feel friendly and concise" not in text
-    assert "Recommended next move: Start with pending task: draft the launch note" in text
+    assert "Recommended next move: Start with: draft the launch note" in text
 
 
 def test_attention_acknowledges_durable_when_no_actionables(monkeypatch):

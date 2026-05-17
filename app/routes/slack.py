@@ -2041,16 +2041,63 @@ def get_partitioned_lane_memories(user_id: str, lane: str) -> tuple[list[dict], 
 
 
 ATTENTION_BULLET = "•"
+MAX_ATTENTION_ITEM_CHARS = 220
+
+
+FOCUS_ATTENTION_TERMS = {
+    "bishop": ("bishop", "slack", "codex", "builder", "control-plane"),
+    "dj": ("dj", "mix", "crate", "track", "set", "music"),
+    "events": (
+        "event",
+        "events",
+        "venue",
+        "run-of-show",
+        "vendor",
+        "talent",
+        "guest",
+        "activation",
+        "nightlife",
+        "hospitality",
+    ),
+    "personal": ("personal", "home", "family", "health"),
+    "stemlab": ("stemlab", "stem lab", "ableton", "stem", "stems", "producer", "edm"),
+    "website": ("website", "site", "homepage", "landing page", "portfolio", "lead"),
+    "work": ("work", "client", "project", "deadline", "meeting"),
+}
+
+
+def shorten_attention_text(text: str | None, max_chars: int = MAX_ATTENTION_ITEM_CHARS) -> str:
+    cleaned = clean_string(text)
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 3].rstrip(" ,.;:") + "..."
+
+
+def item_matches_focus(item: dict, focus: str | None, text_field: str) -> bool:
+    if not focus:
+        return True
+    terms = FOCUS_ATTENTION_TERMS.get(focus, (focus,))
+    text = clean_string(item.get(text_field)).casefold()
+    return any(term in text for term in terms)
+
+
+def filter_attention_items_for_focus(
+    items: list[dict], focus: str | None, text_field: str
+) -> list[dict]:
+    if not focus:
+        return items
+    return [item for item in items if item_matches_focus(item, focus, text_field)]
 
 
 def _format_attention_tasks(items: list[dict]) -> str:
     lines = ["Pending tasks"]
     for item in items:
-        task_text = (item.get("task_text") or "").strip()
+        task_text = shorten_attention_text(item.get("task_text"), max_chars=120)
         if not task_text:
             continue
-        if len(task_text) > 120:
-            task_text = task_text[:117] + "..."
         lines.append(f"{ATTENTION_BULLET} {task_text}")
     return "\n".join(lines)
 
@@ -2060,25 +2107,31 @@ def _format_attention_memory(items: list[dict]) -> str:
     for item in items:
         if not isinstance(item, dict):
             continue
-        content = clean_string(item.get("content"))
+        content = shorten_attention_text(item.get("content"))
         if not content:
             continue
         lines.append(f"{ATTENTION_BULLET} {content}")
     return "\n".join(lines)
 
 
-def build_attention_next_move(pending_tasks: list[dict], operational: list[dict]) -> str:
+def build_attention_next_move(
+    pending_tasks: list[dict], operational: list[dict], active_focus: str | None = None
+) -> str:
     if pending_tasks:
-        task_text = clean_string(pending_tasks[0].get("task_text"))
+        task_text = shorten_attention_text(pending_tasks[0].get("task_text"), max_chars=120)
         if task_text:
-            return f"Recommended next move: Start with pending task: {task_text}"
+            return f"Recommended next move: Start with: {task_text}"
 
     if operational:
-        content = clean_string(operational[0].get("content"))
-        if content:
-            return f"Recommended next move: Review this operational context first: {content}"
+        return "Recommended next move: Turn the top context item into a concrete next action."
 
-    return "Recommended next move: Keep using this lane normally."
+    if active_focus:
+        return (
+            f"Recommended next move: Stay in {format_focus_name(active_focus)} "
+            "and define the next concrete task."
+        )
+
+    return "Recommended next move: Define the next concrete task for this lane."
 
 
 def is_attention_actionable(item: dict) -> bool:
@@ -2100,21 +2153,42 @@ def is_attention_actionable(item: dict) -> bool:
     return True
 
 
-def build_attention_response(user_id: str, lane: str) -> str:
+def build_attention_response(user_id: str, lane: str, active_focus: str | None = None) -> str:
     pending_tasks = get_tasks_for_lane(
         user_id=user_id, lane=lane, status="pending", limit=10
     )
     working_memory, _background_memory = get_partitioned_lane_memories(user_id, lane)
 
     operational = [m for m in working_memory if is_attention_actionable(m)]
+    if active_focus:
+        pending_tasks = filter_attention_items_for_focus(
+            pending_tasks, active_focus, "task_text"
+        )
+        operational = filter_attention_items_for_focus(
+            operational, active_focus, "content"
+        )
 
     if not pending_tasks and not operational:
+        if active_focus:
+            return (
+                f"Nothing urgent for {format_focus_name(active_focus)} "
+                f"in the {lane} lane right now.\n\n"
+                + build_attention_next_move(
+                    pending_tasks, operational, active_focus=active_focus
+                )
+            )
         return (
             f"Nothing urgent in the {lane} lane right now.\n\n"
             "I have background context saved, but nothing that needs action."
         )
 
-    sections = [f"Here’s what needs your attention in the {lane} lane:"]
+    if active_focus:
+        sections = [
+            f"Here’s what needs your attention for {format_focus_name(active_focus)} "
+            f"in the {lane} lane:"
+        ]
+    else:
+        sections = [f"Here’s what needs your attention in the {lane} lane:"]
 
     if pending_tasks:
         sections.append("")
@@ -2125,7 +2199,11 @@ def build_attention_response(user_id: str, lane: str) -> str:
         sections.append(_format_attention_memory(operational))
 
     sections.append("")
-    sections.append(build_attention_next_move(pending_tasks, operational))
+    sections.append(
+        build_attention_next_move(
+            pending_tasks, operational, active_focus=active_focus
+        )
+    )
 
     return "\n".join(sections)
 
@@ -2780,7 +2858,10 @@ async def slack_events(request: Request):
             "what should i focus on",
             "help me prioritize",
         }:
-            response_text = build_attention_response(user_id=user_id, lane=lane)
+            active_focus = get_active_focus(user_id=user_id, lane=lane)
+            response_text = build_attention_response(
+                user_id=user_id, lane=lane, active_focus=active_focus
+            )
 
             post_message(channel_id, response_text)
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
