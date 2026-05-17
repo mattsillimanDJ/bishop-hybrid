@@ -552,20 +552,36 @@ def generate_reply_for_slack(
     user_id: str,
     message: str,
     working_context: str,
+    lane: str | None = None,
 ) -> str:
     if not working_context:
-        return generate_reply(user_id=user_id, message=message)
+        try:
+            return generate_reply(user_id=user_id, message=message, lane=lane)
+        except TypeError as exc:
+            if "lane" not in str(exc):
+                raise
+            return generate_reply(user_id=user_id, message=message)
 
     try:
         return generate_reply(
             user_id=user_id,
             message=message,
             working_context=working_context,
+            lane=lane,
         )
     except TypeError as exc:
-        if "working_context" not in str(exc):
+        if "working_context" not in str(exc) and "lane" not in str(exc):
             raise
-        return generate_reply(user_id=user_id, message=message)
+        try:
+            return generate_reply(
+                user_id=user_id,
+                message=message,
+                working_context=working_context,
+            )
+        except TypeError as fallback_exc:
+            if "working_context" not in str(fallback_exc):
+                raise
+            return generate_reply(user_id=user_id, message=message)
 
 
 def help_text() -> str:
@@ -2051,6 +2067,20 @@ def _format_attention_memory(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def build_attention_next_move(pending_tasks: list[dict], operational: list[dict]) -> str:
+    if pending_tasks:
+        task_text = clean_string(pending_tasks[0].get("task_text"))
+        if task_text:
+            return f"Recommended next move: Start with pending task: {task_text}"
+
+    if operational:
+        content = clean_string(operational[0].get("content"))
+        if content:
+            return f"Recommended next move: Review this operational context first: {content}"
+
+    return "Recommended next move: Keep using this lane normally."
+
+
 def is_attention_actionable(item: dict) -> bool:
     """Items that should appear as urgent attention items.
     Profile/preference content is durable background, not actionable —
@@ -2093,6 +2123,9 @@ def build_attention_response(user_id: str, lane: str) -> str:
     if operational:
         sections.append("")
         sections.append(_format_attention_memory(operational))
+
+    sections.append("")
+    sections.append(build_attention_next_move(pending_tasks, operational))
 
     return "\n".join(sections)
 
@@ -2741,7 +2774,12 @@ async def slack_events(request: Request):
             log_system_response(user_id, channel_id, user_text, response_text, memory_used=True)
             return {"ok": True}
 
-        if memory_command_key == "what needs my attention":
+        if memory_command_key in {
+            "what needs my attention",
+            "what needs attention",
+            "what should i focus on",
+            "help me prioritize",
+        }:
             response_text = build_attention_response(user_id=user_id, lane=lane)
 
             post_message(channel_id, response_text)
@@ -3166,6 +3204,7 @@ async def slack_events(request: Request):
                 user_id=user_id,
                 message=styled_user_text,
                 working_context=working_context,
+                lane=lane,
             )
             if not response_text or not response_text.strip():
                 raise ValueError("Empty response from generate_reply")

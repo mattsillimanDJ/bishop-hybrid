@@ -278,6 +278,44 @@ def test_followup_uses_working_session_context(monkeypatch):
     assert captured["posted"] == ["Next move: turn the StemLab plan into a one-page MVP test."]
 
 
+def test_normal_slack_reply_passes_lane_to_generate_reply_for_slack(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text):
+        captured.setdefault("posted", []).append(text)
+        return {"ok": True, "ts": "123"}
+
+    def fake_generate_reply_for_slack(user_id, message, working_context, lane=None):
+        captured["lane"] = lane
+        captured["message_to_model"] = message
+        captured["working_context"] = working_context
+        return "Use the work lane context."
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "generate_reply_for_slack", fake_generate_reply_for_slack)
+    monkeypatch.setattr(slack_route, "get_active_focus", lambda user_id, lane: None)
+    monkeypatch.setattr(slack_route, "get_working_session_context", lambda **kwargs: "")
+    monkeypatch.setattr(slack_route, "append_working_session_turn", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "response_contains_commitment", lambda response_text: False)
+    monkeypatch.setattr(slack_route, "get_effective_provider", lambda: "openai")
+    monkeypatch.setattr(slack_route, "get_provider_model", lambda provider=None: "gpt-4.1-mini")
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+    monkeypatch.setattr(slack_route, "get_lane_from_channel", lambda channel_id, resolver=None: "work")
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("what should we do next?", event_id="evt-lane-to-reply"),
+    )
+
+    assert response.status_code == 200
+    assert captured["lane"] == "work"
+    assert "what should we do next?" in captured["message_to_model"]
+    assert captured["working_context"] == ""
+    assert captured["posted"] == ["Use the work lane context."]
+
+
 def test_dm_message_without_app_mention_is_processed(monkeypatch):
     reset_route_state()
     captured = {}

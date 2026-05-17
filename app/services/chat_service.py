@@ -92,12 +92,25 @@ def extract_queries(message: str) -> list[str]:
     return queries
 
 
-def generate_memory_context(user_id: str, message: str, limit: int = 8) -> str:
+def generate_memory_context(
+    user_id: str,
+    message: str,
+    limit: int = 8,
+    lane: str | None = None,
+) -> str:
     seen = set()
     matches = []
 
     for query in extract_queries(message):
-        results = search_memories(user_id=user_id, query=query, limit=limit)
+        if lane:
+            results = search_memories(
+                user_id=user_id,
+                query=query,
+                lane=lane,
+                limit=limit,
+            )
+        else:
+            results = search_memories(user_id=user_id, query=query, limit=limit)
         for item in results:
             item_id = item.get("id")
             if item_id not in seen:
@@ -111,8 +124,15 @@ def generate_memory_context(user_id: str, message: str, limit: int = 8) -> str:
     return "\n".join(lines)
 
 
-def generate_task_context(user_id: str, limit: int = 5) -> str:
-    tasks = get_tasks(user_id=user_id, status="pending", limit=limit)
+def generate_task_context(
+    user_id: str,
+    limit: int = 5,
+    lane: str | None = None,
+) -> str:
+    if lane:
+        tasks = get_tasks(user_id=user_id, lane=lane, status="pending", limit=limit)
+    else:
+        tasks = get_tasks(user_id=user_id, status="pending", limit=limit)
     if not tasks:
         return "No pending tasks."
 
@@ -354,10 +374,23 @@ def build_task_text_from_message(message: str) -> str:
     return normalized[:157].rstrip() + "..."
 
 
-def generate_reply(user_id: str, message: str, working_context: str = "") -> str:
+def generate_reply(
+    user_id: str,
+    message: str,
+    working_context: str = "",
+    lane: str | None = None,
+) -> str:
     mode = get_mode(user_id)
-    memory_context = generate_memory_context(user_id=user_id, message=message)
-    task_context = generate_task_context(user_id=user_id)
+    if lane:
+        memory_context = generate_memory_context(
+            user_id=user_id,
+            message=message,
+            lane=lane,
+        )
+        task_context = generate_task_context(user_id=user_id, lane=lane)
+    else:
+        memory_context = generate_memory_context(user_id=user_id, message=message)
+        task_context = generate_task_context(user_id=user_id)
     system_prompt = get_mode_system_prompt(mode)
     product_context = get_product_context(mode, message)
     personalization_guidance = get_personalization_guidance(mode, memory_context)

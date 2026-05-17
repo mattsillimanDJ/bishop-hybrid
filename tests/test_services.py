@@ -127,6 +127,65 @@ def test_generate_reply_uses_effective_provider(monkeypatch):
     assert "Tell me about Ben" in captured["user_prompt"]
 
 
+def test_generate_reply_uses_lane_scoped_memory_and_tasks(monkeypatch):
+    monkeypatch.setattr(chat_service, "get_mode", lambda user_id: "work")
+    monkeypatch.setattr(chat_service, "get_effective_provider", lambda: "openai")
+
+    memory_calls = []
+    task_calls = []
+    captured = {}
+
+    def fake_search_memories(user_id, query, limit=8, lane=None):
+        memory_calls.append({"user_id": user_id, "query": query, "lane": lane})
+        return [
+            {
+                "id": 1,
+                "content": "Work lane memory",
+            }
+        ]
+
+    def fake_get_tasks(user_id, lane="general", status=None, limit=5):
+        task_calls.append(
+            {
+                "user_id": user_id,
+                "lane": lane,
+                "status": status,
+                "limit": limit,
+            }
+        )
+        return [{"task_text": "Work lane task"}]
+
+    def fake_generate_text(provider, system_prompt, user_prompt):
+        captured["provider"] = provider
+        captured["user_prompt"] = user_prompt
+        return "lane-aware reply"
+
+    monkeypatch.setattr(chat_service, "search_memories", fake_search_memories)
+    monkeypatch.setattr(chat_service, "get_tasks", fake_get_tasks)
+    monkeypatch.setattr(chat_service, "generate_text", fake_generate_text)
+
+    result = chat_service.generate_reply(
+        user_id="U123",
+        message="What should I do next?",
+        lane="work",
+    )
+
+    assert result == "lane-aware reply"
+    assert captured["provider"] == "openai"
+    assert "Work lane memory" in captured["user_prompt"]
+    assert "Work lane task" in captured["user_prompt"]
+    assert memory_calls
+    assert all(call["lane"] == "work" for call in memory_calls)
+    assert task_calls == [
+        {
+            "user_id": "U123",
+            "lane": "work",
+            "status": "pending",
+            "limit": 5,
+        }
+    ]
+
+
 def test_base_system_prompt_includes_no_weak_ending_instruction():
     prompt = chat_service.get_base_system_prompt()
 

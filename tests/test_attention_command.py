@@ -110,6 +110,10 @@ def test_attention_command_routes_and_includes_tasks_and_memory(monkeypatch):
     assert "Working memory:" not in text
     assert "• ship the attention dashboard" in text
     assert "• check PR #42" in text
+    assert (
+        "Recommended next move: Start with pending task: finish the attention command"
+        in text
+    )
 
     assert task_calls == [{"user_id": "U123", "lane": "matt", "status": "pending"}]
     assert memory_calls == ["matt"]
@@ -218,6 +222,7 @@ def test_attention_command_omits_memory_section_when_only_tasks(monkeypatch):
     assert "2026-04-24" not in text
     assert "Working memory:" not in text
     assert "Operational context" not in text
+    assert "Recommended next move: Start with pending task: only task" in text
 
 
 def test_attention_command_omits_task_section_when_only_memory(monkeypatch):
@@ -264,6 +269,10 @@ def test_attention_command_omits_task_section_when_only_memory(monkeypatch):
     assert "Working memory:" not in text
     assert "• lone working memory item" in text
     assert "Pending tasks" not in text
+    assert (
+        "Recommended next move: Review this operational context first: "
+        "lone working memory item"
+    ) in text
 
 
 def test_attention_command_is_lane_scoped(monkeypatch):
@@ -301,6 +310,53 @@ def test_attention_command_is_lane_scoped(monkeypatch):
     assert "in the dj lane" in captured["text"]
 
 
+def test_attention_command_aliases_route_to_attention_response(monkeypatch):
+    aliases = [
+        "what needs attention",
+        "what should I focus on",
+        "help me prioritize",
+    ]
+
+    for index, alias in enumerate(aliases):
+        reset_route_state()
+        captured = {}
+
+        def fake_post_message(channel, text):
+            captured["text"] = text
+            return {"ok": True, "ts": "123"}
+
+        _stub_common(monkeypatch, lane="work")
+        monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+        monkeypatch.setattr(
+            slack_route,
+            "get_tasks",
+            lambda user_id, lane=None, status="pending", limit=10: [
+                {
+                    "created_at": "2026-04-24T09:00:00+00:00",
+                    "task_text": "review the work queue",
+                    "assistant_commitment": "",
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            slack_route, "get_memories", lambda user_id, lane=None, limit=20: []
+        )
+
+        response = client.post(
+            "/slack/events",
+            json=make_event(alias, event_id=f"evt-attention-alias-{index}"),
+        )
+
+        assert response.status_code == 200
+        assert captured["text"].startswith(
+            "Here’s what needs your attention in the work lane:"
+        )
+        assert (
+            "Recommended next move: Start with pending task: review the work queue"
+            in captured["text"]
+        )
+
+
 def test_attention_pending_tasks_render_as_plain_bullets(monkeypatch):
     monkeypatch.setattr(
         slack_route,
@@ -323,7 +379,9 @@ def test_attention_pending_tasks_render_as_plain_bullets(monkeypatch):
         "Here’s what needs your attention in the matt lane:\n"
         "\n"
         "Pending tasks\n"
-        "• follow up on Bishop attention dashboard"
+        "• follow up on Bishop attention dashboard\n"
+        "\n"
+        "Recommended next move: Start with pending task: follow up on Bishop attention dashboard"
     )
 
 
@@ -388,6 +446,7 @@ def test_attention_does_not_show_durable_preference_as_urgent(monkeypatch):
     assert "Operational context:" not in text
     assert "• follow up on the Bishop attention dashboard" in text
     assert "Matt wants Bishop to feel friendly and concise" not in text
+    assert "Recommended next move: Start with pending task: draft the launch note" in text
 
 
 def test_attention_acknowledges_durable_when_no_actionables(monkeypatch):
