@@ -9,6 +9,14 @@ from app.config import settings
 
 VALID_RESEARCH_PROVIDERS = {"tavily", "brave", "serper"}
 RESEARCH_PROVIDER_TIMEOUT_SECONDS = 5.0
+RESEARCH_ACCESS_LIMITS = [
+    "public web/search results only",
+    "no login-only content accessed",
+    "no paywall bypass",
+    "no protected previews accessed",
+    "snippets are treated as snippets, not full article reads",
+    "no automatic memory save",
+]
 
 DEFAULT_RESEARCH_API_URLS = {
     "tavily": "https://api.tavily.com/search",
@@ -89,7 +97,15 @@ def is_live_research_available() -> bool:
     return available
 
 
-def build_unavailable_research_result(query: str, *, stemlab: bool = False) -> dict:
+def research_shape(*, stemlab: bool = False, bishop: bool = False) -> str:
+    if stemlab:
+        return "stemlab"
+    if bishop:
+        return "bishop_self_improvement"
+    return "general"
+
+
+def build_unavailable_research_result(query: str, *, stemlab: bool = False, bishop: bool = False) -> dict:
     _available, message, provider = validate_research_config()
     setup_step = (
         "Set RESEARCH_PROVIDER to tavily, brave, or serper and set RESEARCH_API_KEY "
@@ -101,7 +117,10 @@ def build_unavailable_research_result(query: str, *, stemlab: bool = False) -> d
         "query": clean_query(query),
         "missing_configuration": message,
         "next_setup_step": setup_step,
+        "research_shape": research_shape(stemlab=stemlab, bishop=bishop),
+        "access_limits": RESEARCH_ACCESS_LIMITS,
         "stemlab": stemlab,
+        "bishop": bishop,
     }
 
 
@@ -341,7 +360,13 @@ def build_weak_signals(sources: list[dict]) -> list[str]:
     return weak_signals
 
 
-def build_suggested_next_queries(query: str, sources: list[dict], *, stemlab: bool = False) -> list[str]:
+def build_suggested_next_queries(
+    query: str,
+    sources: list[dict],
+    *,
+    stemlab: bool = False,
+    bishop: bool = False,
+) -> list[str]:
     if stemlab:
         return [
             f"{query} reddit complaints",
@@ -349,6 +374,14 @@ def build_suggested_next_queries(query: str, sources: list[dict], *, stemlab: bo
             f"{query} artifacts quality",
             f"{query} comparison Serato RipX Moises",
             f"{query} producer workflow",
+        ]
+    if bishop:
+        return [
+            f"{query} official docs",
+            f"{query} implementation examples",
+            f"{query} risks limitations",
+            f"{query} Slack agent pattern",
+            f"{query} memory system pattern",
         ]
 
     source_types = {classify_source(source) for source in sources}
@@ -364,7 +397,14 @@ def build_suggested_next_queries(query: str, sources: list[dict], *, stemlab: bo
     return queries[:5]
 
 
-def build_research_result(query: str, sources: list[dict], provider: str, *, stemlab: bool = False) -> dict:
+def build_research_result(
+    query: str,
+    sources: list[dict],
+    provider: str,
+    *,
+    stemlab: bool = False,
+    bishop: bool = False,
+) -> dict:
     findings = build_findings_from_sources(sources)
     if sources and findings:
         confidence = "medium"
@@ -387,11 +427,18 @@ def build_research_result(query: str, sources: list[dict], provider: str, *, ste
             0,
             "Evaluate whether the evidence changes StemLab workflow, export, quality, or positioning decisions.",
         )
+    elif bishop:
+        product_implications.insert(
+            0,
+            "Evaluate whether the evidence suggests a small, safe Bishop improvement worth a separate approved sprint.",
+        )
 
     return {
         "available": True,
         "provider": provider,
         "query": query,
+        "research_shape": research_shape(stemlab=stemlab, bishop=bishop),
+        "access_limits": RESEARCH_ACCESS_LIMITS,
         "sources": sources,
         "findings": findings,
         "confidence": confidence,
@@ -399,26 +446,27 @@ def build_research_result(query: str, sources: list[dict], provider: str, *, ste
         "evidence_quality": build_evidence_quality(sources),
         "weak_signals": build_weak_signals(sources),
         "source_types": build_source_types(sources),
-        "suggested_next_queries": build_suggested_next_queries(query, sources, stemlab=stemlab),
+        "suggested_next_queries": build_suggested_next_queries(query, sources, stemlab=stemlab, bishop=bishop),
         "product_implications": product_implications,
         "open_questions": open_questions,
         "suggested_memory_item": (
-            "Only save after selecting a specific source and writing the finding in source-backed format."
+            "No memory was saved. Only save after Matt explicitly asks and a specific source supports the finding."
         ),
         "stemlab": stemlab,
+        "bishop": bishop,
     }
 
 
-def run_web_research(query: str, *, stemlab: bool = False, limit: int = 5) -> dict:
+def run_web_research(query: str, *, stemlab: bool = False, bishop: bool = False, limit: int = 5) -> dict:
     cleaned_query = clean_query(query)
     available, message, provider = validate_research_config()
     if not cleaned_query:
-        result = build_unavailable_research_result(cleaned_query, stemlab=stemlab)
+        result = build_unavailable_research_result(cleaned_query, stemlab=stemlab, bishop=bishop)
         result["missing_configuration"] = "No research query was provided"
         return result
 
     if not available:
-        return build_unavailable_research_result(cleaned_query, stemlab=stemlab)
+        return build_unavailable_research_result(cleaned_query, stemlab=stemlab, bishop=bishop)
 
     try:
         sources = search_provider(cleaned_query, limit=limit)
@@ -429,7 +477,10 @@ def run_web_research(query: str, *, stemlab: bool = False, limit: int = 5) -> di
             "query": cleaned_query,
             "missing_configuration": f"Research provider request failed: {str(exc)}",
             "next_setup_step": "Check RESEARCH_PROVIDER, RESEARCH_API_KEY, RESEARCH_API_URL, and provider access.",
+            "research_shape": research_shape(stemlab=stemlab, bishop=bishop),
+            "access_limits": RESEARCH_ACCESS_LIMITS,
             "stemlab": stemlab,
+            "bishop": bishop,
         }
 
-    return build_research_result(cleaned_query, sources, provider, stemlab=stemlab)
+    return build_research_result(cleaned_query, sources, provider, stemlab=stemlab, bishop=bishop)

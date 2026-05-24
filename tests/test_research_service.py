@@ -54,10 +54,42 @@ def test_research_service_available_with_mocked_provider(monkeypatch):
     assert result["available"] is True
     assert result["provider"] == "tavily"
     assert result["query"] == "Ableton stem workflow"
+    assert result["research_shape"] == "stemlab"
+    assert "public web/search results only" in result["access_limits"]
+    assert "snippets are treated as snippets, not full article reads" in result["access_limits"]
+    assert "no automatic memory save" in result["access_limits"]
     assert result["sources"][0]["url"] == "https://example.com/ableton"
     assert "Producers care about clean labels" in result["findings"][0]
     assert result["confidence"] == "medium"
-    assert result["suggested_memory_item"]
+    assert "No memory was saved" in result["suggested_memory_item"]
+
+
+def test_research_service_bishop_shape_uses_self_improvement_next_queries(monkeypatch):
+    monkeypatch.setattr(research_service.settings, "RESEARCH_PROVIDER", "tavily")
+    monkeypatch.setattr(research_service.settings, "RESEARCH_API_KEY", "test-key")
+    monkeypatch.setattr(research_service.settings, "RESEARCH_API_URL", "")
+
+    def fake_search_provider(query, limit=5):
+        assert query == "LangGraph Slack memory agent patterns"
+        return [
+            {
+                "title": "Agent pattern source",
+                "url": "https://example.com/agent-pattern",
+                "snippet": "Public snippet about Slack agent memory tradeoffs.",
+            }
+        ]
+
+    monkeypatch.setattr(research_service, "search_provider", fake_search_provider)
+
+    result = research_service.run_web_research("LangGraph Slack memory agent patterns", bishop=True)
+
+    assert result["available"] is True
+    assert result["research_shape"] == "bishop_self_improvement"
+    assert result["bishop"] is True
+    assert result["stemlab"] is False
+    assert "no paywall bypass" in result["access_limits"]
+    assert "small, safe Bishop improvement" in result["product_implications"][0]
+    assert "LangGraph Slack memory agent patterns official docs" in result["suggested_next_queries"]
 
 
 def test_research_service_builds_repeated_speed_pattern():

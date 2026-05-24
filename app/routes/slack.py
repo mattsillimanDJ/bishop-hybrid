@@ -680,6 +680,7 @@ def help_text() -> str:
         "Research:\n"
         "* research\n"
         "* research status\n"
+        "* bishop research ...\n"
         "* web research ...\n"
         "* stemlab web research\n"
         "* stemlab live web research ...\n"
@@ -961,14 +962,14 @@ def live_research_tools_available() -> bool:
 def research_text() -> str:
     return (
         "Bishop research layer:\n"
-        "Bishop can plan research, structure source review, and save source-backed findings, "
-        "but live browsing depends on connected tools.\n"
+        "Bishop can plan research and structure source review. Live web research uses configured "
+        "public search providers and treats snippets as snippets, not full article reads.\n"
         "* plan: turn the question into a deterministic research plan.\n"
         "* search: define source targets and query patterns before looking anything up.\n"
         "* verify: separate claims, evidence, credibility, and open questions.\n"
         "* synthesize: turn reviewed sources into product or decision implications.\n"
         "* cite: keep findings tied to the sources that support them.\n"
-        "* save: save only source-backed findings, not unsupported guesses."
+        "* guardrails: no login-only content, no paywall bypass, no protected previews, no automatic memory save."
     )
 
 
@@ -988,7 +989,8 @@ def research_status_text() -> str:
         f"* Configuration: {message}\n"
         "* Deterministic research plans are available.\n"
         "* Persistent memory is available.\n"
-        "* Source-backed findings can be structured for saving when a real source is available."
+        "* Source-backed findings can be structured for saving when a real source is available.\n"
+        "* Guardrails: public web/search results only; snippets are not full article reads; no automatic memory save."
     )
 
 
@@ -1167,6 +1169,13 @@ def extract_web_research_query(user_text: str) -> str | None:
     return re.sub(r"\s+", " ", match.group(1)).strip() or None
 
 
+def extract_bishop_research_query(user_text: str) -> str | None:
+    match = re.match(r"^\s*bishop\s+research(?:\s*[:,-]\s*|\s+)(.+)$", user_text or "", re.IGNORECASE)
+    if not match:
+        return None
+    return re.sub(r"\s+", " ", match.group(1)).strip() or None
+
+
 def extract_stemlab_live_web_research_query(user_text: str) -> str | None:
     match = re.match(
         r"^\s*stemlab\s+live\s+web\s+research(?:\s*[:,-]\s*|\s+)(.+)$",
@@ -1250,23 +1259,48 @@ def format_list_section(
     return title + "\n" + "\n".join(f"* {item}" for item in safe_items)
 
 
-def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
+def format_access_limits_for_slack(result: dict) -> str:
+    access_limits = result.get("access_limits")
+    if not isinstance(access_limits, list):
+        access_limits = [
+            "public web/search results only",
+            "no login-only content accessed",
+            "no paywall bypass",
+            "no protected previews accessed",
+            "snippets are treated as snippets, not full article reads",
+            "no automatic memory save",
+        ]
+    return format_list_section("Access limits:", [str(item) for item in access_limits], max_items=6)
+
+
+def format_web_research_response(result: dict, *, stemlab: bool = False, bishop: bool = False) -> str:
     query = clean_string(result.get("query"), "unknown")
 
     if not result.get("available"):
+        if bishop:
+            return (
+                "Bishop self-improvement research unavailable:\n"
+                f"* requested query: {query}\n"
+                "* what Bishop would research: public docs, implementation patterns, risks, and small safe improvement options.\n"
+                f"* missing configuration: {clean_string(result.get('missing_configuration'), 'unknown')}\n"
+                + format_access_limits_for_slack(result)
+            )
+
         if stemlab:
             return (
                 "StemLab live web research unavailable:\n"
                 f"* requested query: {query}\n"
                 "* what Bishop would research: source-backed StemLab workflow, competitor, quality, and Ableton-ready evidence.\n"
-                f"* missing configuration: {clean_string(result.get('missing_configuration'), 'unknown')}"
+                f"* missing configuration: {clean_string(result.get('missing_configuration'), 'unknown')}\n"
+                + format_access_limits_for_slack(result)
             )
 
         return (
             "Live web research unavailable:\n"
             f"* requested query: {query}\n"
             f"* missing configuration: {clean_string(result.get('missing_configuration'), 'unknown')}\n"
-            f"* next setup step: {clean_string(result.get('next_setup_step'), 'Configure RESEARCH_PROVIDER and RESEARCH_API_KEY.')}"
+            f"* next setup step: {clean_string(result.get('next_setup_step'), 'Configure RESEARCH_PROVIDER and RESEARCH_API_KEY.')}\n"
+            + format_access_limits_for_slack(result)
         )
 
     sources = result.get("sources") if isinstance(result.get("sources"), list) else []
@@ -1306,6 +1340,7 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
         sections = [
             "StemLab live web research result:",
             f"Query: {query}",
+            format_access_limits_for_slack(result),
             format_list_section("Repeated patterns:", repeated_patterns, max_items=4),
             format_list_section("Evidence quality:", evidence_quality, max_items=4),
             format_list_section("Weak signals:", weak_signals, max_items=3),
@@ -1322,9 +1357,27 @@ def format_web_research_response(result: dict, *, stemlab: bool = False) -> str:
         ]
         return "\n".join(sections)
 
+    if bishop:
+        sections = [
+            "Bishop self-improvement research result:",
+            f"Query: {query}",
+            format_access_limits_for_slack(result),
+            format_list_section("Evidence quality:", evidence_quality, max_items=4),
+            format_list_section("Weak signals:", weak_signals, max_items=3),
+            f"Confidence: {clean_string(result.get('confidence'), 'unknown')}",
+            format_list_section("Safe improvement options:", implications),
+            format_list_section("Findings:", findings, escape_external=True, max_items=4, max_chars=220),
+            "Sources checked:\n" + "\n".join(format_sources_for_slack(sources, max_sources=5)),
+            format_list_section("Open questions:", open_questions, max_items=3),
+            format_list_section("Suggested next queries:", suggested_next_queries, max_items=4),
+            f"Memory: {clean_string(result.get('suggested_memory_item'), 'none saved')}",
+        ]
+        return "\n".join(sections)
+
     sections = [
         "Live web research result:",
         f"Query: {query}",
+        format_access_limits_for_slack(result),
         format_list_section("Repeated patterns:", repeated_patterns, max_items=4),
         format_list_section("Evidence quality:", evidence_quality, max_items=4),
         f"Confidence: {clean_string(result.get('confidence'), 'unknown')}",
@@ -2761,6 +2814,14 @@ async def slack_events(request: Request):
         if stemlab_live_query:
             result = run_web_research(stemlab_live_query, stemlab=True)
             response_text = format_web_research_response(result, stemlab=True)
+            post_message(channel_id, response_text, unfurl_links=False, unfurl_media=False)
+            log_system_response(user_id, channel_id, user_text, response_text)
+            return {"ok": True}
+
+        bishop_research_query = extract_bishop_research_query(user_text)
+        if bishop_research_query:
+            result = run_web_research(bishop_research_query, bishop=True)
+            response_text = format_web_research_response(result, bishop=True)
             post_message(channel_id, response_text, unfurl_links=False, unfurl_media=False)
             log_system_response(user_id, channel_id, user_text, response_text)
             return {"ok": True}

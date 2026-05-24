@@ -665,6 +665,7 @@ def test_help_command(monkeypatch):
     assert "Research:" in captured["text"]
     assert "* research" in captured["text"]
     assert "* research status" in captured["text"]
+    assert "* bishop research ..." in captured["text"]
     assert "* stemlab web research" in captured["text"]
     assert "* stemlab reddit search plan" in captured["text"]
     assert "* stemlab source backed finding" in captured["text"]
@@ -1148,6 +1149,8 @@ def test_research_commands_return_expected_labels(monkeypatch):
         assert captured["responses"][-1].startswith(label)
 
     assert "Live web/MCP execution is not wired yet." in captured["responses"][1]
+    assert "snippets as snippets, not full article reads" in captured["responses"][0]
+    assert "no automatic memory save" in captured["responses"][1]
     assert "This is a workflow unless live search tools are wired." in captured["responses"][2]
     assert "r/ableton" in captured["responses"][3]
     assert "Findings should only be saved when a source is available." in captured["responses"][4]
@@ -1216,6 +1219,9 @@ def test_web_research_command_returns_unavailable_without_provider(monkeypatch):
     assert "requested query: AI stem separation tools" in captured["text"]
     assert "missing configuration: RESEARCH_PROVIDER is not configured" in captured["text"]
     assert "next setup step: Set RESEARCH_PROVIDER and RESEARCH_API_KEY." in captured["text"]
+    assert "Access limits:" in captured["text"]
+    assert "public web/search results only" in captured["text"]
+    assert "snippets are treated as snippets, not full article reads" in captured["text"]
     assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
 
 
@@ -1255,6 +1261,71 @@ def test_stemlab_live_web_research_command_returns_unavailable_without_provider(
     assert "requested query: Ableton AI stem export complaints" in captured["text"]
     assert "what Bishop would research:" in captured["text"]
     assert "missing configuration: RESEARCH_API_KEY is not set" in captured["text"]
+    assert "no protected previews accessed" in captured["text"]
+    assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
+
+
+def test_bishop_research_command_formats_mocked_available_result(monkeypatch):
+    reset_route_state()
+    captured = {}
+
+    def fake_post_message(channel, text, **kwargs):
+        captured["text"] = text
+        captured["kwargs"] = kwargs
+        return {"ok": True, "ts": "123"}
+
+    def fake_run_web_research(query, stemlab=False, bishop=False):
+        assert query == "OpenClaw LangGraph Slack agent memory"
+        assert stemlab is False
+        assert bishop is True
+        return {
+            "available": True,
+            "query": query,
+            "access_limits": [
+                "public web/search results only",
+                "no login-only content accessed",
+                "no paywall bypass",
+                "no protected previews accessed",
+                "snippets are treated as snippets, not full article reads",
+                "no automatic memory save",
+            ],
+            "sources": [
+                {
+                    "title": "Agent docs",
+                    "url": "https://example.com/agent-docs",
+                    "snippet": "Public search snippet.",
+                }
+            ],
+            "findings": ["Agent docs: Public search snippet."],
+            "confidence": "medium",
+            "evidence_quality": ["single-source claims need verification"],
+            "weak_signals": ["single social or community source should be treated as weak evidence"],
+            "product_implications": ["Evaluate as a small, safe Bishop improvement."],
+            "suggested_next_queries": ["OpenClaw LangGraph Slack agent memory official docs"],
+            "open_questions": ["Which pattern is safe for Bishop?"],
+            "suggested_memory_item": "No memory was saved.",
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "run_web_research", fake_run_web_research)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "bishop research OpenClaw LangGraph Slack agent memory",
+            event_id="evt-bishop-research-available",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("Bishop self-improvement research result:")
+    assert "Access limits:" in captured["text"]
+    assert "snippets are treated as snippets, not full article reads" in captured["text"]
+    assert "no automatic memory save" in captured["text"]
+    assert "Safe improvement options:" in captured["text"]
+    assert "Agent docs - https://example.com/agent-docs" in captured["text"]
     assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
 
 
@@ -1395,7 +1466,14 @@ def test_web_research_response_unavailable_output_unchanged():
         "Live web research unavailable:\n"
         "* requested query: missing provider\n"
         "* missing configuration: RESEARCH_PROVIDER is not configured\n"
-        "* next setup step: Set RESEARCH_PROVIDER and RESEARCH_API_KEY."
+        "* next setup step: Set RESEARCH_PROVIDER and RESEARCH_API_KEY.\n"
+        "Access limits:\n"
+        "* public web/search results only\n"
+        "* no login-only content accessed\n"
+        "* no paywall bypass\n"
+        "* no protected previews accessed\n"
+        "* snippets are treated as snippets, not full article reads\n"
+        "* no automatic memory save"
     )
 
 
@@ -1506,6 +1584,42 @@ def test_stemlab_research_command_does_not_trigger_memory_capture(monkeypatch):
 
     assert response.status_code == 200
     assert captured["text"].startswith("StemLab research plan:")
+    assert captured["memories"] == []
+
+
+def test_bishop_research_command_does_not_trigger_memory_capture(monkeypatch):
+    reset_route_state()
+    captured = {"memories": []}
+
+    def fake_post_message(channel, text, **kwargs):
+        captured["text"] = text
+        return {"ok": True, "ts": "123"}
+
+    def fake_add_memory(**kwargs):
+        captured["memories"].append(kwargs)
+        return {"id": len(captured["memories"]), **kwargs}
+
+    def fake_run_web_research(query, stemlab=False, bishop=False):
+        return {
+            "available": False,
+            "query": query,
+            "missing_configuration": "RESEARCH_PROVIDER is not configured",
+            "access_limits": ["public web/search results only", "no automatic memory save"],
+        }
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "add_memory", fake_add_memory)
+    monkeypatch.setattr(slack_route, "run_web_research", fake_run_web_research)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event("bishop research memory systems", event_id="evt-bishop-research-no-memory"),
+    )
+
+    assert response.status_code == 200
+    assert captured["text"].startswith("Bishop self-improvement research unavailable:")
     assert captured["memories"] == []
 
 
