@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
+from app.services import task_service
 from app.services.conversation_log_service import get_recent_conversations, log_conversation
 from app.services.focus_service import set_active_focus
 from app.services.memory_service import add_memory, get_memories
@@ -145,6 +146,86 @@ def test_console_tasks_returns_existing_tasks_only():
         "read_only",
     }.issubset(item)
     assert any(item["task_text"] == "write console test" for item in data["items"])
+
+
+def test_console_task_endpoints_support_legacy_task_schema_without_lane():
+    with task_service.get_connection() as conn:
+        conn.execute("DROP TABLE tasks")
+        conn.execute(
+            """
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                source_message TEXT NOT NULL,
+                task_text TEXT NOT NULL,
+                assistant_commitment TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO tasks (
+                user_id,
+                status,
+                source_message,
+                task_text,
+                assistant_commitment
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "matt",
+                "pending",
+                "legacy source",
+                "legacy task without lane",
+                "I'll track it.",
+            ),
+        )
+        conn.commit()
+        before_rows = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT id, user_id, status, source_message, task_text, assistant_commitment, created_at FROM tasks"
+            ).fetchall()
+        ]
+
+    responses = {
+        path: client.get(path)
+        for path in ["/console/tasks", "/console/status", "/console/projects"]
+    }
+
+    for response in responses.values():
+        assert response.status_code == 200
+        assert response.json()["read_only"] is True
+        assert "no such column" not in json.dumps(response.json()).lower()
+
+    task_payload = responses["/console/tasks"].json()
+    assert task_payload["schema_limited"] is True
+    assert task_payload["items"][0]["task_text"] == "legacy task without lane"
+    assert task_payload["items"][0]["lane"] is None
+    assert task_payload["items"][0]["updated_at"] is None
+    assert task_payload["items"][0]["schema_limited"] is True
+
+    status_payload = responses["/console/status"].json()
+    assert status_payload["counts"]["pending_tasks"] >= 1
+
+    projects_payload = responses["/console/projects"].json()
+    assert all(
+        item["available_counts"]["task_schema_limited"] is True
+        for item in projects_payload["items"]
+    )
+
+    with task_service.get_connection() as conn:
+        after_rows = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT id, user_id, status, source_message, task_text, assistant_commitment, created_at FROM tasks"
+            ).fetchall()
+        ]
+
+    assert after_rows == before_rows
 
 
 def test_console_conversations_returns_existing_conversations_only():

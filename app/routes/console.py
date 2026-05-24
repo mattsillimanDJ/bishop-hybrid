@@ -19,6 +19,15 @@ router = APIRouter(prefix="/console", tags=["console"])
 CONSOLE_PHASE = "phase_1_read_only"
 CONSOLE_USER_ID = "matt"
 CONSOLE_DEFAULT_LANE = "matt"
+CONSOLE_TASK_FIELDS = (
+    "id",
+    "task_text",
+    "status",
+    "lane",
+    "source_message",
+    "created_at",
+    "updated_at",
+)
 
 # TODO: Phase 1 is internal/private but does not add a new auth system.
 # Add console authentication before exposing these endpoints outside Bishop's
@@ -86,6 +95,13 @@ def _fetch_count(connection_factory, sql: str, params: tuple[Any, ...] = ()) -> 
         return 0
 
 
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    return {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+
+
 def _safe_provider_status() -> dict:
     resolution = get_provider_resolution()
     return {
@@ -107,24 +123,40 @@ def _research_status() -> dict:
 
 
 def _task_counts(lane: str | None = None) -> dict:
-    params: tuple[Any, ...] = ()
-    lane_clause = ""
-    if lane:
-        lane_clause = " AND lane = ?"
-        params = (lane,)
+    try:
+        with get_task_connection() as conn:
+            columns = _table_columns(conn, "tasks")
+            schema_limited = not columns or "status" not in columns
+            lane_clause = ""
+            params: tuple[Any, ...] = ()
 
-    return {
-        "pending": _fetch_count(
-            get_task_connection,
-            f"SELECT COUNT(*) FROM tasks WHERE status = 'pending'{lane_clause}",
-            params,
-        ),
-        "done": _fetch_count(
-            get_task_connection,
-            f"SELECT COUNT(*) FROM tasks WHERE status = 'done'{lane_clause}",
-            params,
-        ),
-    }
+            if lane:
+                if "lane" in columns:
+                    lane_clause = " AND lane = ?"
+                    params = (lane,)
+                else:
+                    schema_limited = True
+                    return {
+                        "pending": 0,
+                        "done": 0,
+                        "schema_limited": schema_limited,
+                    }
+
+            pending = conn.execute(
+                f"SELECT COUNT(*) FROM tasks WHERE status = 'pending'{lane_clause}",
+                params,
+            ).fetchone()
+            done = conn.execute(
+                f"SELECT COUNT(*) FROM tasks WHERE status = 'done'{lane_clause}",
+                params,
+            ).fetchone()
+            return {
+                "pending": int(pending[0] or 0) if pending else 0,
+                "done": int(done[0] or 0) if done else 0,
+                "schema_limited": schema_limited,
+            }
+    except sqlite3.Error:
+        return {"pending": 0, "done": 0, "schema_limited": True}
 
 
 def _memory_count(lane: str | None = None) -> int:
@@ -150,6 +182,7 @@ def _available_counts(lane: str) -> dict:
         "memory": _memory_count(lane=lane),
         "pending_tasks": task_counts["pending"],
         "done_tasks": task_counts["done"],
+        "task_schema_limited": task_counts["schema_limited"],
     }
 
 
@@ -163,6 +196,7 @@ def _console_task(item: dict) -> dict:
         "source_message": item.get("source_message"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
+        "schema_limited": bool(item.get("schema_limited")),
         "read_only": True,
     }
 
@@ -198,6 +232,7 @@ def console_status() -> dict:
             "memory": _memory_count(),
             "pending_tasks": task_counts["pending"],
             "done_tasks": task_counts["done"],
+            "task_schema_limited": task_counts["schema_limited"],
             "recent_conversations": _conversation_count(),
         },
     }
@@ -253,20 +288,49 @@ def console_memory(limit: int = Query(default=20, ge=1, le=100)) -> dict:
 @router.get("/tasks")
 def console_tasks(limit: int = Query(default=50, ge=1, le=100)) -> dict:
     with get_task_connection() as conn:
+        columns = _table_columns(conn, "tasks")
+        selected_columns = [
+            column for column in CONSOLE_TASK_FIELDS if column in columns
+        ]
+        schema_limited = any(
+            column not in columns for column in CONSOLE_TASK_FIELDS
+        )
+        if "created_at" in columns and "id" in columns:
+            order_by = "created_at DESC, id DESC"
+        elif "created_at" in columns:
+            order_by = "created_at DESC"
+        elif "id" in columns:
+            order_by = "id DESC"
+        else:
+            order_by = "ROWID DESC"
+
+        if not selected_columns:
+            return {
+                "console_phase": CONSOLE_PHASE,
+                "read_only": True,
+                "schema_limited": True,
+                "count": 0,
+                "items": [],
+            }
+
         rows = conn.execute(
-            """
-            SELECT id, task_text, status, lane, source_message, created_at, updated_at
+            f"""
+            SELECT {", ".join(selected_columns)}
             FROM tasks
-            ORDER BY created_at DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ?
             """,
             (limit,),
         ).fetchall()
 
-    items = [_console_task(dict(row)) for row in rows]
+    items = [
+        _console_task({**dict(row), "schema_limited": schema_limited})
+        for row in rows
+    ]
     return {
         "console_phase": CONSOLE_PHASE,
         "read_only": True,
+        "schema_limited": schema_limited,
         "count": len(items),
         "items": items,
     }
