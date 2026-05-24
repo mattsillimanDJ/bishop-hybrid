@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
+from app.routes.console import router as console_router
 from app.routes.conversations import router as conversations_router
 from app.routes.health import router as health_router
 from app.routes.memory import router as memory_router
@@ -36,6 +37,7 @@ app.include_router(health_router)
 app.include_router(slack_router)
 app.include_router(memory_router)
 app.include_router(conversations_router)
+app.include_router(console_router)
 
 
 @app.get("/")
