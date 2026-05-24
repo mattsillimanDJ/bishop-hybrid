@@ -73,8 +73,12 @@ MESSAGE_DEDUPE_WINDOW_SECONDS = 8
 MESSAGE_DEDUPE_CACHE_LIMIT = 1000
 WORKING_MESSAGE_MIN_CHARS = 80
 
-BOT_NAME_PREFIX_PATTERN = re.compile(
-    r"^\s*(?:@?\s*bishop(?:\s+hybrid|_hybrid)?)[\s,:-]+",
+BISHOP_HYBRID_PREFIX_PATTERN = re.compile(
+    r"^\s*@?\s*bishop(?:\s+hybrid|_hybrid)[\s,:-]+",
+    re.IGNORECASE,
+)
+BISHOP_PLAIN_PREFIX_PATTERN = re.compile(
+    r"^\s*@?\s*bishop[\s,:-]+",
     re.IGNORECASE,
 )
 
@@ -422,7 +426,9 @@ def strip_bot_name_prefix(text: str) -> str:
     previous = None
     while stripped and stripped != previous:
         previous = stripped
-        stripped = BOT_NAME_PREFIX_PATTERN.sub("", stripped).strip()
+        stripped = BISHOP_HYBRID_PREFIX_PATTERN.sub("", stripped).strip()
+        if not re.match(r"^\s*bishop\s+research\b", stripped, re.IGNORECASE):
+            stripped = BISHOP_PLAIN_PREFIX_PATTERN.sub("", stripped).strip()
     return stripped
 
 
@@ -430,7 +436,7 @@ def normalize_user_text_for_slack_event(text: str, strip_name_prefix: bool = Tru
     stripped = strip_app_mention(text)
     if strip_name_prefix:
         return strip_bot_name_prefix(stripped)
-    return stripped
+    return BISHOP_HYBRID_PREFIX_PATTERN.sub("", stripped).strip()
 
 
 def normalize_auto_listen_channel(value: str) -> str:
@@ -1226,10 +1232,12 @@ def format_sources_for_slack(sources: list[dict], *, max_sources: int = 5) -> li
     for source in sources[:max_sources]:
         title = escape_slack_external_text(truncate_for_slack(source.get("title"), 100)) or "Untitled source"
         url = escape_slack_external_text(source.get("url"))
+        quality = escape_slack_external_text(source.get("source_quality"))
+        quality_suffix = f" ({quality})" if quality else ""
         if url:
-            lines.append(f"* {title} - {url}")
+            lines.append(f"* {title} - {url}{quality_suffix}")
         else:
-            lines.append(f"* {title}")
+            lines.append(f"* {title}{quality_suffix}")
     return lines
 
 

@@ -1,6 +1,6 @@
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -141,6 +141,42 @@ def source_from_item(title: object, url: object, snippet: object) -> dict | None
     }
 
 
+def normalize_source_url(url: object) -> str:
+    parsed = urlparse(str(url or "").strip())
+    if not parsed.netloc:
+        return str(url or "").strip().lower().rstrip("/")
+
+    host = parsed.netloc.lower().removeprefix("www.")
+    path = re.sub(r"/+", "/", parsed.path or "").rstrip("/")
+    return urlunparse((parsed.scheme.lower() or "https", host, path, "", "", ""))
+
+
+def normalize_source_title(title: object) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(title or "").lower())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def dedupe_sources(sources: list[dict]) -> list[dict]:
+    deduped = []
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
+
+    for source in sources:
+        normalized_url = normalize_source_url(source.get("url"))
+        normalized_title = normalize_source_title(source.get("title"))
+        if normalized_url and normalized_url in seen_urls:
+            continue
+        if normalized_title and normalized_title in seen_titles:
+            continue
+        if normalized_url:
+            seen_urls.add(normalized_url)
+        if normalized_title:
+            seen_titles.add(normalized_title)
+        deduped.append(source)
+
+    return deduped
+
+
 def parse_tavily_sources(payload: dict[str, Any]) -> list[dict]:
     sources = []
     for item in payload.get("results", []) or []:
@@ -279,6 +315,8 @@ def classify_source(source: dict) -> str:
 
     if host_matches(host, "ableton.com"):
         return "official docs/help"
+    if host_matches(host, "github.com") or host_matches(host, "gitlab.com"):
+        return "repository/source code"
     if host_matches(host, "reddit.com"):
         return "community discussion"
     if host_matches(host, "youtube.com") or host_matches(host, "youtu.be"):
@@ -290,6 +328,56 @@ def classify_source(source: dict) -> str:
     if any(marker in text for marker in ["pricing", "product", "features", "download", "buy now", "vendor"]):
         return "product/vendor page"
     return "unclear source type"
+
+
+def classify_source_quality(source: dict) -> tuple[str, str, int]:
+    host = source_host(source)
+    text = source_text(source)
+
+    if host_matches(host, "github.com") or host_matches(host, "gitlab.com"):
+        return "GitHub/repository source", "Primary code or issue source; strong for implementation patterns.", 90
+    if any(host_matches(host, domain) for domain in ["langchain.com", "langgraph.dev", "slack.dev", "api.slack.com"]):
+        return "primary framework/vendor docs", "Primary framework or vendor documentation.", 85
+    if any(host_matches(host, domain) for domain in ["openai.com", "anthropic.com", "python.org", "fastapi.tiangolo.com"]):
+        return "official docs", "Official documentation or vendor-owned technical source.", 85
+    if host_matches(host, "ableton.com"):
+        return "official docs", "Official documentation or help source.", 85
+    if host_matches(host, "deepwiki.com"):
+        return "mirror/summary-looking source", "May summarize repository content; verify against the original repo or docs.", 45
+    if any(host_matches(host, domain) for domain in ["reddit.com", "stackoverflow.com", "news.ycombinator.com"]):
+        return "forum/community source", "Useful for user reports, weak for factual implementation claims.", 40
+    if any(marker in host for marker in ["forum", "community"]):
+        return "forum/community source", "Useful for user reports, weak for factual implementation claims.", 40
+    if re.search(r"\b(course|lesson|bootcamp|certification|masterclass|udemy|coursera)\b", text):
+        return "course/promotional source", "May be useful as education material, but weak as evidence.", 35
+    if re.search(r"\b(download|crack|torrent|apk|full version|serial key)\b", text):
+        return "download/piracy-looking source", "Avoid using as trusted evidence.", 10
+    if re.search(r"\b(best|top \d+|ultimate guide|buy now|limited time|revolutionary|game[- ]?changing)\b", text):
+        return "promotional/thin SEO source", "Marketing or SEO language; verify against stronger sources.", 30
+    if re.search(r"\b(docs|documentation|developer|api|reference|guide|technical)\b", text):
+        return "credible technical article", "Technical article or docs-like source; verify important claims.", 65
+    return "unclassified source", "Needs manual review before treating as strong evidence.", 50
+
+
+def annotate_source_quality(source: dict) -> dict:
+    label, reason, score = classify_source_quality(source)
+    return {
+        **source,
+        "source_quality": label,
+        "source_quality_reason": reason,
+        "source_quality_score": score,
+    }
+
+
+def prepare_research_sources(sources: list[dict], *, bishop: bool = False) -> list[dict]:
+    prepared = [annotate_source_quality(source) for source in dedupe_sources(sources)]
+    if bishop:
+        return sorted(
+            prepared,
+            key=lambda source: int(source.get("source_quality_score") or 0),
+            reverse=True,
+        )
+    return prepared
 
 
 def build_repeated_patterns(sources: list[dict]) -> list[str]:
@@ -312,6 +400,7 @@ def build_source_types(sources: list[dict]) -> list[str]:
 
     ordered_types = [
         "official docs/help",
+        "repository/source code",
         "community discussion",
         "video/tutorial",
         "social/forum",
@@ -330,9 +419,14 @@ def build_evidence_quality(sources: list[dict]) -> list[str]:
         return ["no sources returned; retry with a broader query or different source target"]
 
     source_types = {classify_source(source) for source in sources}
+    quality_labels = {str(source.get("source_quality") or "") for source in sources}
     quality = []
-    if "official docs/help" in source_types:
+    if "official docs/help" in source_types or "official docs" in quality_labels:
         quality.append("primary/official source present")
+    if "repository/source code" in source_types or "GitHub/repository source" in quality_labels:
+        quality.append("repository/source-code source present")
+    if "primary framework/vendor docs" in quality_labels:
+        quality.append("primary framework/vendor docs present")
     if "community discussion" in source_types or "social/forum" in source_types:
         quality.append("forum/user report present")
     if "video/tutorial" in source_types:
@@ -346,6 +440,7 @@ def build_evidence_quality(sources: list[dict]) -> list[str]:
 
 def build_weak_signals(sources: list[dict]) -> list[str]:
     source_types = [classify_source(source) for source in sources]
+    quality_labels = [str(source.get("source_quality") or "") for source in sources]
     weak_signals = []
     if source_types.count("social/forum") == 1 or source_types.count("community discussion") == 1:
         weak_signals.append("single social or community source should be treated as weak evidence")
@@ -353,6 +448,16 @@ def build_weak_signals(sources: list[dict]) -> list[str]:
         weak_signals.append("single YouTube/tutorial source should not be treated as consensus")
     if "unclear source type" in source_types:
         weak_signals.append("unclear source type needs manual review")
+    weak_quality_labels = {
+        "forum/community source": "forum/community source should be treated as user-report evidence, not confirmed fact",
+        "course/promotional source": "course or sales-looking source should be verified against docs or repositories",
+        "promotional/thin SEO source": "promotional or thin SEO source should be verified against stronger sources",
+        "download/piracy-looking source": "download or piracy-looking source should not be treated as trusted evidence",
+        "mirror/summary-looking source": "mirror or summary-looking source should be verified against the original source",
+    }
+    for label, message in weak_quality_labels.items():
+        if label in quality_labels and message not in weak_signals:
+            weak_signals.append(message)
     for source in sources:
         if re.search(r"\b(best|revolutionary|ultimate|game[- ]?changing|buy now|limited time)\b", source_text(source), re.I):
             weak_signals.append("snippet looks promotional and should be verified against neutral sources")
@@ -405,6 +510,7 @@ def build_research_result(
     stemlab: bool = False,
     bishop: bool = False,
 ) -> dict:
+    sources = prepare_research_sources(sources, bishop=bishop)
     findings = build_findings_from_sources(sources)
     if sources and findings:
         confidence = "medium"

@@ -92,6 +92,75 @@ def test_research_service_bishop_shape_uses_self_improvement_next_queries(monkey
     assert "LangGraph Slack memory agent patterns official docs" in result["suggested_next_queries"]
 
 
+def test_research_service_dedupes_sources_by_normalized_url_and_title():
+    result = research_service.build_research_result(
+        "LangGraph memory patterns",
+        [
+            {
+                "title": "LangGraph Memory Docs",
+                "url": "https://langchain-ai.github.io/langgraph/concepts/memory/?utm_source=test",
+                "snippet": "Primary docs snippet.",
+            },
+            {
+                "title": "LangGraph Memory Docs",
+                "url": "https://langchain-ai.github.io/langgraph/concepts/memory/",
+                "snippet": "Duplicate docs snippet.",
+            },
+            {
+                "title": "DeepWiki LangGraph",
+                "url": "https://deepwiki.com/langchain-ai/langgraph",
+                "snippet": "Mirror-style summary snippet.",
+            },
+        ],
+        "tavily",
+        bishop=True,
+    )
+
+    assert len(result["sources"]) == 2
+    assert result["sources"][0]["title"] == "LangGraph Memory Docs"
+    assert result["sources"][0]["source_quality"] == "credible technical article"
+    assert result["sources"][1]["source_quality"] == "mirror/summary-looking source"
+    assert "mirror or summary-looking source should be verified against the original source" in result["weak_signals"]
+
+
+def test_research_service_bishop_prefers_primary_sources_over_forums_and_courses():
+    result = research_service.build_research_result(
+        "Slack agent memory patterns",
+        [
+            {
+                "title": "Forum thread about agents",
+                "url": "https://community.example.com/agents",
+                "snippet": "Forum users discuss memory patterns.",
+            },
+            {
+                "title": "Slack platform docs",
+                "url": "https://api.slack.com/apis",
+                "snippet": "Official Slack platform documentation.",
+            },
+            {
+                "title": "Agent memory course",
+                "url": "https://example.com/course/agent-memory",
+                "snippet": "Buy this course for agent memory lessons.",
+            },
+            {
+                "title": "LangGraph repository",
+                "url": "https://github.com/langchain-ai/langgraph",
+                "snippet": "Repository source.",
+            },
+        ],
+        "tavily",
+        bishop=True,
+    )
+
+    assert [source["source_quality"] for source in result["sources"][:2]] == [
+        "GitHub/repository source",
+        "primary framework/vendor docs",
+    ]
+    assert "repository/source-code source present" in result["evidence_quality"]
+    assert "primary framework/vendor docs present" in result["evidence_quality"]
+    assert "course or sales-looking source should be verified against docs or repositories" in result["weak_signals"]
+
+
 def test_research_service_builds_repeated_speed_pattern():
     result = research_service.build_research_result(
         "stem separation speed",

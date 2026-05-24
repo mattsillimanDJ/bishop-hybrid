@@ -546,6 +546,16 @@ def test_bot_name_prefixes_are_normalized(raw_text, expected):
     assert slack_route.normalize_user_text_for_slack_event(raw_text) == expected
 
 
+def test_app_mention_visible_hybrid_prefix_preserves_bishop_research_command():
+    assert (
+        slack_route.normalize_user_text_for_slack_event(
+            "<@BOT> Bishop Hybrid bishop research memory patterns",
+            strip_name_prefix=False,
+        )
+        == "bishop research memory patterns"
+    )
+
+
 def test_normal_generated_slack_reply_receives_concise_style_instruction(monkeypatch):
     reset_route_state()
     captured = {"posted": []}
@@ -1326,6 +1336,57 @@ def test_bishop_research_command_formats_mocked_available_result(monkeypatch):
     assert "no automatic memory save" in captured["text"]
     assert "Safe improvement options:" in captured["text"]
     assert "Agent docs - https://example.com/agent-docs" in captured["text"]
+    assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
+
+
+def test_bishop_research_app_mention_with_visible_name_posts_one_structured_response(monkeypatch):
+    reset_route_state()
+    captured = {"responses": []}
+
+    def fake_post_message(channel, text, **kwargs):
+        captured["responses"].append(text)
+        captured["kwargs"] = kwargs
+        return {"ok": True, "ts": "123"}
+
+    def fake_run_web_research(query, stemlab=False, bishop=False):
+        assert query == "LangGraph Slack agent memory patterns"
+        assert stemlab is False
+        assert bishop is True
+        return {
+            "available": True,
+            "query": query,
+            "sources": [],
+            "findings": ["No source-backed findings were returned by the configured search provider."],
+            "confidence": "low",
+            "evidence_quality": ["no sources returned; retry with a broader query or different source target"],
+            "weak_signals": [],
+            "product_implications": ["Evaluate as a small, safe Bishop improvement."],
+            "suggested_next_queries": [],
+            "open_questions": [],
+            "suggested_memory_item": "No memory was saved.",
+            "access_limits": ["public web/search results only", "no automatic memory save"],
+        }
+
+    def fail_generate_reply_for_slack(**kwargs):
+        raise AssertionError("bishop research should not fall through to normal assistant response")
+
+    monkeypatch.setattr(slack_route, "post_message", fake_post_message)
+    monkeypatch.setattr(slack_route, "run_web_research", fake_run_web_research)
+    monkeypatch.setattr(slack_route, "generate_reply_for_slack", fail_generate_reply_for_slack)
+    monkeypatch.setattr(slack_route, "get_mode", lambda user_id: "default")
+    monkeypatch.setattr(slack_route, "log_conversation", lambda **kwargs: None)
+
+    response = client.post(
+        "/slack/events",
+        json=make_event(
+            "Bishop Hybrid bishop research LangGraph Slack agent memory patterns",
+            event_id="evt-bishop-research-visible-name",
+        ),
+    )
+
+    assert response.status_code == 200
+    assert len(captured["responses"]) == 1
+    assert captured["responses"][0].startswith("Bishop self-improvement research result:")
     assert captured["kwargs"] == {"unfurl_links": False, "unfurl_media": False}
 
 
