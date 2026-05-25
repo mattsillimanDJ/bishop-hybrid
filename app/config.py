@@ -11,6 +11,7 @@ class Settings:
     SLACK_SIGNING_SECRET: str = os.getenv("SLACK_SIGNING_SECRET", "")
     BISHOP_AUTO_LISTEN_CHANNELS: str = os.getenv("BISHOP_AUTO_LISTEN_CHANNELS", "")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    CONSOLE_API_TOKEN: str = os.getenv("CONSOLE_API_TOKEN", "")
 
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai").lower()
 

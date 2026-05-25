@@ -1,7 +1,8 @@
+import hmac
 import sqlite3
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
 from app.config import settings
 from app.services.conversation_log_service import get_recent_conversations
@@ -14,11 +15,10 @@ from app.services.research_service import validate_research_config
 from app.services.task_service import get_connection as get_task_connection
 
 
-router = APIRouter(prefix="/console", tags=["console"])
-
 CONSOLE_PHASE = "phase_1_read_only"
 CONSOLE_USER_ID = "matt"
 CONSOLE_DEFAULT_LANE = "matt"
+CONSOLE_AUTH_ERROR = "Console authentication required"
 CONSOLE_TASK_FIELDS = (
     "id",
     "task_text",
@@ -29,9 +29,29 @@ CONSOLE_TASK_FIELDS = (
     "updated_at",
 )
 
-# TODO: Phase 1 is internal/private but does not add a new auth system.
-# Add console authentication before exposing these endpoints outside Bishop's
-# trusted private runtime.
+
+def require_console_auth(
+    x_bishop_console_token: str | None = Header(default=None),
+) -> None:
+    configured_token = settings.CONSOLE_API_TOKEN
+    if not configured_token or not x_bishop_console_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=CONSOLE_AUTH_ERROR,
+        )
+
+    if not hmac.compare_digest(x_bishop_console_token, configured_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=CONSOLE_AUTH_ERROR,
+        )
+
+
+router = APIRouter(
+    prefix="/console",
+    tags=["console"],
+    dependencies=[Depends(require_console_auth)],
+)
 
 PROJECTS = [
     {

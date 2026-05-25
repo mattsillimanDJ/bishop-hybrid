@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
@@ -13,6 +14,51 @@ from app.services.task_service import add_task, get_tasks, mark_task_done
 
 
 client = TestClient(app)
+
+CONSOLE_TEST_TOKEN = "test-console-token"
+CONSOLE_HEADERS = {"X-Bishop-Console-Token": CONSOLE_TEST_TOKEN}
+CONSOLE_PATHS = [
+    "/console/status",
+    "/console/projects",
+    "/console/memory",
+    "/console/tasks",
+    "/console/conversations",
+]
+
+
+@pytest.fixture(autouse=True)
+def configure_console_token(monkeypatch):
+    monkeypatch.setattr(settings, "CONSOLE_API_TOKEN", CONSOLE_TEST_TOKEN)
+
+
+def test_console_routes_reject_missing_token():
+    for path in CONSOLE_PATHS:
+        response = client.get(path)
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Console authentication required"}
+
+
+def test_console_routes_reject_invalid_token():
+    headers = {"X-Bishop-Console-Token": "wrong-token"}
+    for path in CONSOLE_PATHS:
+        response = client.get(path, headers=headers)
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Console authentication required"}
+
+
+def test_console_routes_fail_closed_when_token_is_not_configured(monkeypatch):
+    monkeypatch.setattr(settings, "CONSOLE_API_TOKEN", "")
+    for path in CONSOLE_PATHS:
+        response = client.get(path, headers=CONSOLE_HEADERS)
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Console authentication required"}
+
+
+def test_console_routes_allow_valid_token():
+    for path in CONSOLE_PATHS:
+        response = client.get(path, headers=CONSOLE_HEADERS)
+        assert response.status_code == 200
+        assert response.json()["read_only"] is True
 
 
 def test_console_status_returns_read_only_summary(monkeypatch):
@@ -51,7 +97,7 @@ def test_console_status_returns_read_only_summary(monkeypatch):
         model="gpt-test",
     )
 
-    response = client.get("/console/status")
+    response = client.get("/console/status", headers=CONSOLE_HEADERS)
 
     assert response.status_code == 200
     data = response.json()
@@ -74,7 +120,7 @@ def test_console_status_returns_read_only_summary(monkeypatch):
 
 
 def test_console_projects_returns_known_focus_cards():
-    response = client.get("/console/projects")
+    response = client.get("/console/projects", headers=CONSOLE_HEADERS)
 
     assert response.status_code == 200
     data = response.json()
@@ -98,7 +144,7 @@ def test_console_projects_returns_known_focus_cards():
 def test_console_memory_returns_existing_memory_only():
     add_memory("matt", "preference", "Console memory item", lane="matt")
 
-    response = client.get("/console/memory")
+    response = client.get("/console/memory", headers=CONSOLE_HEADERS)
 
     assert response.status_code == 200
     data = response.json()
@@ -126,7 +172,7 @@ def test_console_tasks_returns_existing_tasks_only():
         assistant_commitment="I'll track it.",
     )
 
-    response = client.get("/console/tasks")
+    response = client.get("/console/tasks", headers=CONSOLE_HEADERS)
 
     assert response.status_code == 200
     data = response.json()
@@ -192,7 +238,7 @@ def test_console_task_endpoints_support_legacy_task_schema_without_lane():
         ]
 
     responses = {
-        path: client.get(path)
+        path: client.get(path, headers=CONSOLE_HEADERS)
         for path in ["/console/tasks", "/console/status", "/console/projects"]
     }
 
@@ -242,7 +288,7 @@ def test_console_conversations_returns_existing_conversations_only():
         model="gpt-test",
     )
 
-    response = client.get("/console/conversations")
+    response = client.get("/console/conversations", headers=CONSOLE_HEADERS)
 
     assert response.status_code == 200
     data = response.json()
@@ -304,11 +350,11 @@ def test_console_reads_do_not_mutate_memory_tasks_or_conversations():
     before_done_tasks = get_tasks(user_id="matt", lane="matt", status="done", limit=100)
     before_conversations = get_recent_conversations(limit=100)
 
-    assert client.get("/console/status").status_code == 200
-    assert client.get("/console/projects").status_code == 200
-    assert client.get("/console/memory").status_code == 200
-    assert client.get("/console/tasks").status_code == 200
-    assert client.get("/console/conversations").status_code == 200
+    assert client.get("/console/status", headers=CONSOLE_HEADERS).status_code == 200
+    assert client.get("/console/projects", headers=CONSOLE_HEADERS).status_code == 200
+    assert client.get("/console/memory", headers=CONSOLE_HEADERS).status_code == 200
+    assert client.get("/console/tasks", headers=CONSOLE_HEADERS).status_code == 200
+    assert client.get("/console/conversations", headers=CONSOLE_HEADERS).status_code == 200
 
     after_memory = get_memories(user_id="matt", limit=100)
     after_pending_tasks = get_tasks(user_id="matt", lane="matt", status="pending", limit=100)
@@ -329,16 +375,12 @@ def test_console_endpoints_do_not_expose_secret_values(monkeypatch):
     monkeypatch.setattr(settings, "SLACK_SIGNING_SECRET", "secret-slack-signing")
     monkeypatch.setattr(settings, "RESEARCH_API_KEY", "secret-research-value")
     monkeypatch.setattr(settings, "DATABASE_URL", "secret-database-url")
+    monkeypatch.setattr(settings, "CONSOLE_API_TOKEN", "secret-console-token")
 
     payloads = []
-    for path in [
-        "/console/status",
-        "/console/projects",
-        "/console/memory",
-        "/console/tasks",
-        "/console/conversations",
-    ]:
-        response = client.get(path)
+    headers = {"X-Bishop-Console-Token": "secret-console-token"}
+    for path in CONSOLE_PATHS:
+        response = client.get(path, headers=headers)
         assert response.status_code == 200
         payloads.append(json.dumps(response.json()))
 
@@ -349,3 +391,4 @@ def test_console_endpoints_do_not_expose_secret_values(monkeypatch):
     assert "secret-slack-signing" not in combined
     assert "secret-research-value" not in combined
     assert "secret-database-url" not in combined
+    assert "secret-console-token" not in combined
