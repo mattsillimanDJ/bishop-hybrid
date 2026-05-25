@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bishop Console</title>
+    <link rel="stylesheet" href="/console-ui/assets/console.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Private local shell</p>
+          <h1>Bishop Console</h1>
+        </div>
+        <span class="badge">Read-only</span>
+      </header>
+
+      <section class="panel auth-panel" aria-labelledby="auth-title">
+        <div>
+          <h2 id="auth-title">Console API token</h2>
+          <p>
+            Paste the local <code>CONSOLE_API_TOKEN</code> value to load read-only
+            Console data. The token is stored only in this browser session.
+          </p>
+        </div>
+        <form id="token-form" class="token-form">
+          <input
+            id="token-input"
+            type="password"
+            autocomplete="off"
+            placeholder="Paste token"
+            aria-label="Console API token"
+          />
+          <button type="submit">Load</button>
+          <button type="button" id="clear-token">Clear token</button>
+        </form>
+        <p id="auth-message" class="auth-message" role="status"></p>
+      </section>
+
+      <section class="status-grid" aria-label="Console status">
+        <article class="panel status-card">
+          <p class="label">App</p>
+          <strong id="app-name">Not loaded</strong>
+          <span id="phase" class="muted">Waiting for token</span>
+        </article>
+        <article class="panel status-card">
+          <p class="label">Mode / Focus</p>
+          <strong id="mode-focus">-</strong>
+          <span id="lane" class="muted">Lane: -</span>
+        </article>
+        <article class="panel status-card">
+          <p class="label">Provider</p>
+          <strong id="provider">-</strong>
+          <span id="research" class="muted">Research: -</span>
+        </article>
+        <article class="panel status-card">
+          <p class="label">Counts</p>
+          <strong id="counts">-</strong>
+          <span class="muted">Read-only snapshot</span>
+        </article>
+      </section>
+
+      <section class="panel" aria-labelledby="projects-title">
+        <div class="section-heading">
+          <h2 id="projects-title">Projects</h2>
+          <span class="badge small">Read-only</span>
+        </div>
+        <div id="projects" class="project-grid empty">No data loaded.</div>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel">
+          <div class="section-heading">
+            <h2>Recent Memory</h2>
+            <span class="badge small">Read-only</span>
+          </div>
+          <ul id="memory" class="item-list empty">
+            <li>No data loaded.</li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <div class="section-heading">
+            <h2>Tasks</h2>
+            <span class="badge small">Read-only</span>
+          </div>
+          <ul id="tasks" class="item-list empty">
+            <li>No data loaded.</li>
+          </ul>
+        </article>
+
+        <article class="panel wide">
+          <div class="section-heading">
+            <h2>Recent Conversations</h2>
+            <span class="badge small">Read-only</span>
+          </div>
+          <ul id="conversations" class="item-list empty">
+            <li>No data loaded.</li>
+          </ul>
+        </article>
+      </section>
+    </main>
+    <script src="/console-ui/assets/console.js" defer></script>
+  </body>
+</html>

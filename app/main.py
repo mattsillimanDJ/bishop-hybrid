@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routes.console import router as console_router
@@ -32,12 +35,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+CONSOLE_STATIC_DIR = Path(__file__).parent / "static" / "console"
 
 app.include_router(health_router)
 app.include_router(slack_router)
 app.include_router(memory_router)
 app.include_router(conversations_router)
 app.include_router(console_router)
+app.mount(
+    "/console-ui/assets",
+    StaticFiles(directory=CONSOLE_STATIC_DIR),
+    name="console-ui-assets",
+)
+
+
+@app.get("/console-ui", include_in_schema=False)
+@app.get("/console-ui/", include_in_schema=False)
+def console_ui():
+    return FileResponse(CONSOLE_STATIC_DIR / "index.html")
 
 
 @app.get("/")

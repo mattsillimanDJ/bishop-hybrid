@@ -61,6 +61,23 @@ def test_console_routes_allow_valid_token():
         assert response.json()["read_only"] is True
 
 
+def test_console_ui_shell_is_served_without_exposing_token():
+    for path in ["/console-ui", "/console-ui/"]:
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert "Bishop Console" in response.text
+        assert "Read-only" in response.text
+        assert CONSOLE_TEST_TOKEN not in response.text
+
+
+def test_console_ui_assets_are_served_without_exposing_token():
+    for path in ["/console-ui/assets/console.css", "/console-ui/assets/console.js"]:
+        response = client.get(path)
+        assert response.status_code == 200
+        assert CONSOLE_TEST_TOKEN not in response.text
+
+
 def test_console_status_returns_read_only_summary(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "secret-openai-key")
     monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "secret-slack-token")
@@ -325,6 +342,21 @@ def test_console_routes_do_not_allow_write_methods():
         assert client.put(path).status_code == 405
         assert client.patch(path).status_code == 405
         assert client.delete(path).status_code == 405
+
+
+def test_console_namespace_has_no_write_routes():
+    write_methods = {"POST", "PUT", "PATCH", "DELETE"}
+    console_routes = [
+        route
+        for route in app.routes
+        if getattr(route, "path", "").startswith(("/console", "/console-ui"))
+    ]
+
+    assert console_routes
+    assert all(
+        not (set(getattr(route, "methods", set()) or set()) & write_methods)
+        for route in console_routes
+    )
 
 
 def test_console_reads_do_not_mutate_memory_tasks_or_conversations():
