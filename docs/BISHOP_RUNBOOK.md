@@ -298,7 +298,72 @@ Expected result:
 
 Do not test memory writes or task creation unless you actually want to save a memory or create a task.
 
-## 12. What To Paste Back Into ChatGPT
+## 12. Configure And Smoke Test The Private Console API
+
+The Bishop Console API is private. Every `/console/*` endpoint requires this header:
+
+```text
+X-Bishop-Console-Token: <configured token>
+```
+
+The token comes from this environment setting:
+
+```text
+CONSOLE_API_TOKEN
+```
+
+What this token does:
+
+- Protects the read-only Console endpoints:
+  - `GET /console/status`
+  - `GET /console/projects`
+  - `GET /console/memory`
+  - `GET /console/tasks`
+  - `GET /console/conversations`
+- Must be set before using `/console/*`.
+- Must never be committed, pasted into docs, printed in examples, or exposed in logs or API responses.
+- Missing, invalid, or unconfigured tokens return:
+
+```json
+{"detail": "Console authentication required"}
+```
+
+For local smoke testing, use a fake placeholder token only:
+
+```bash
+python - <<'PY'
+from fastapi.testclient import TestClient
+from app.config import settings
+from app.main import app
+
+settings.CONSOLE_API_TOKEN = "local-test-token"
+
+client = TestClient(app)
+headers = {"X-Bishop-Console-Token": "local-test-token"}
+for path in [
+    "/console/status",
+    "/console/projects",
+    "/console/memory",
+    "/console/tasks",
+    "/console/conversations",
+]:
+    missing = client.get(path)
+    allowed = client.get(path, headers=headers)
+    print(path, "missing", missing.status_code, "allowed", allowed.status_code, allowed.json().get("read_only"))
+PY
+```
+
+Expected result:
+
+```text
+/console/status missing 401 allowed 200 True
+/console/projects missing 401 allowed 200 True
+/console/memory missing 401 allowed 200 True
+/console/tasks missing 401 allowed 200 True
+/console/conversations missing 401 allowed 200 True
+```
+
+## 13. What To Paste Back Into ChatGPT
 
 Paste this:
 

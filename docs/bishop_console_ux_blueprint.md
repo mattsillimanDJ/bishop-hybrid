@@ -856,6 +856,7 @@ MVP security stance:
 - Read-only first.
 - No secret display.
 - No deploy changes during the first Console sprint unless Matt separately approves a deploy sprint.
+- Current read-only `/console/*` endpoints require `CONSOLE_API_TOKEN`; operational setup and smoke testing live in `docs/BISHOP_RUNBOOK.md`.
 
 ## Safety And Access-Limit Model
 
