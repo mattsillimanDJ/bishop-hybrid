@@ -68,6 +68,8 @@ def test_console_ui_shell_is_served_without_exposing_token():
         assert response.headers["content-type"].startswith("text/html")
         assert "Bishop Console" in response.text
         assert "Read-only" in response.text
+        assert "Refresh" in response.text
+        assert "Last refreshed: never" in response.text
         assert CONSOLE_TEST_TOKEN not in response.text
 
 

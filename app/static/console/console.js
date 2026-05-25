@@ -10,7 +10,45 @@ const endpoints = {
 const tokenForm = document.querySelector("#token-form");
 const tokenInput = document.querySelector("#token-input");
 const clearTokenButton = document.querySelector("#clear-token");
+const refreshButton = document.querySelector("#refresh-data");
 const authMessage = document.querySelector("#auth-message");
+const lastRefreshed = document.querySelector("#last-refreshed");
+
+const sections = {
+  status: {
+    errorSelector: "#status-error",
+    loading: () => {
+      setText("#app-name", "Loading...");
+      setText("#phase", "Loading status");
+      setText("#mode-focus", "-");
+      setText("#lane", "Lane: -");
+      setText("#provider", "-");
+      setText("#research", "Research: -");
+      setText("#counts", "-");
+    },
+    render: renderStatus,
+  },
+  projects: {
+    errorSelector: "#projects-error",
+    loading: () => setContainerLoading("#projects", "Loading projects..."),
+    render: renderProjects,
+  },
+  memory: {
+    errorSelector: "#memory-error",
+    loading: () => setListLoading("#memory", "Loading memory..."),
+    render: renderMemory,
+  },
+  tasks: {
+    errorSelector: "#tasks-error",
+    loading: () => setListLoading("#tasks", "Loading tasks..."),
+    render: renderTasks,
+  },
+  conversations: {
+    errorSelector: "#conversations-error",
+    loading: () => setListLoading("#conversations", "Loading conversations..."),
+    render: renderConversations,
+  },
+};
 
 function text(value, fallback = "-") {
   if (value === null || value === undefined || value === "") {
@@ -27,6 +65,41 @@ function setAuthMessage(message) {
   authMessage.textContent = message;
 }
 
+function setLastRefreshed(date) {
+  lastRefreshed.textContent = `Last refreshed: ${date.toLocaleString()}`;
+}
+
+function setRefreshing(isRefreshing) {
+  refreshButton.disabled = isRefreshing;
+  tokenForm.querySelector("button[type='submit']").disabled = isRefreshing;
+}
+
+function setSectionError(name, message) {
+  const errorNode = document.querySelector(sections[name].errorSelector);
+  errorNode.textContent = message || "";
+  errorNode.classList.toggle("visible", Boolean(message));
+}
+
+function clearSectionError(name) {
+  setSectionError(name, "");
+}
+
+function setContainerLoading(selector, message) {
+  const container = document.querySelector(selector);
+  container.classList.add("empty");
+  container.textContent = message;
+}
+
+function setListLoading(selector, message) {
+  const list = document.querySelector(selector);
+  list.classList.add("empty");
+  list.innerHTML = "";
+
+  const item = document.createElement("li");
+  item.textContent = message;
+  list.append(item);
+}
+
 function storedToken() {
   return sessionStorage.getItem(TOKEN_KEY) || "";
 }
@@ -38,6 +111,7 @@ function saveToken(token) {
 function clearToken() {
   sessionStorage.removeItem(TOKEN_KEY);
   tokenInput.value = "";
+  lastRefreshed.textContent = "Last refreshed: never";
   setAuthMessage("Token cleared. Paste the local Console API token to load data.");
 }
 
@@ -60,6 +134,7 @@ function itemMeta(parts) {
 }
 
 function renderStatus(data) {
+  clearSectionError("status");
   setText("#app-name", text(data.app_name, "Bishop"));
   setText("#phase", `${text(data.console_phase)} | read-only: ${data.read_only === true}`);
   setText("#mode-focus", `${text(data.mode)} / ${text(data.focus)}`);
@@ -76,6 +151,7 @@ function renderStatus(data) {
 }
 
 function renderProjects(data) {
+  clearSectionError("projects");
   const container = document.querySelector("#projects");
   container.classList.remove("empty");
   container.innerHTML = "";
@@ -141,6 +217,7 @@ function listItem(title, meta, detail) {
 }
 
 function renderMemory(data) {
+  clearSectionError("memory");
   renderList(
     "#memory",
     data.items,
@@ -155,6 +232,7 @@ function renderMemory(data) {
 }
 
 function renderTasks(data) {
+  clearSectionError("tasks");
   renderList(
     "#tasks",
     data.items,
@@ -169,6 +247,7 @@ function renderTasks(data) {
 }
 
 function renderConversations(data) {
+  clearSectionError("conversations");
   renderList(
     "#conversations",
     data.items,
@@ -189,26 +268,37 @@ async function loadConsoleData(token) {
   }
 
   setAuthMessage("Loading read-only Console data...");
+  setRefreshing(true);
 
-  try {
-    const [status, projects, memory, tasks, conversations] = await Promise.all([
-      fetchConsole(endpoints.status, token),
-      fetchConsole(endpoints.projects, token),
-      fetchConsole(endpoints.memory, token),
-      fetchConsole(endpoints.tasks, token),
-      fetchConsole(endpoints.conversations, token),
-    ]);
+  const results = await Promise.all(
+    Object.entries(sections).map(async ([name, section]) => {
+      section.loading();
+      clearSectionError(name);
 
-    renderStatus(status);
-    renderProjects(projects);
-    renderMemory(memory);
-    renderTasks(tasks);
-    renderConversations(conversations);
+      try {
+        const data = await fetchConsole(endpoints[name], token);
+        section.render(data);
+        return { name, ok: true };
+      } catch (error) {
+        setSectionError(name, `Could not load this section. ${error.message}`);
+        return { name, ok: false };
+      }
+    }),
+  );
+
+  setRefreshing(false);
+
+  const loadedCount = results.filter((result) => result.ok).length;
+  if (loadedCount > 0) {
+    setLastRefreshed(new Date());
+  }
+
+  if (loadedCount === results.length) {
     setAuthMessage("Read-only Console data loaded.");
-  } catch (error) {
-    setAuthMessage(
-      `Could not load Console data. Check CONSOLE_API_TOKEN and server config. ${error.message}`,
-    );
+  } else if (loadedCount > 0) {
+    setAuthMessage("Some Console sections could not load. Check section errors.");
+  } else {
+    setAuthMessage("Could not load Console data. Check CONSOLE_API_TOKEN and server config.");
   }
 }
 
@@ -220,6 +310,10 @@ tokenForm.addEventListener("submit", (event) => {
 });
 
 clearTokenButton.addEventListener("click", clearToken);
+
+refreshButton.addEventListener("click", () => {
+  loadConsoleData(storedToken());
+});
 
 const initialToken = storedToken();
 tokenInput.value = initialToken;

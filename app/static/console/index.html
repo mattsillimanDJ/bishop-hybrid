@@ -13,7 +13,10 @@
           <p class="eyebrow">Private local shell</p>
           <h1>Bishop Console</h1>
         </div>
-        <span class="badge">Read-only</span>
+        <div class="topbar-actions">
+          <button type="button" id="refresh-data" class="refresh-button">Refresh</button>
+          <span class="badge">Read-only</span>
+        </div>
       </header>
 
       <section class="panel auth-panel" aria-labelledby="auth-title">
@@ -36,6 +39,7 @@
           <button type="button" id="clear-token">Clear token</button>
         </form>
         <p id="auth-message" class="auth-message" role="status"></p>
+        <p id="last-refreshed" class="last-refreshed">Last refreshed: never</p>
       </section>
 
       <section class="status-grid" aria-label="Console status">
@@ -43,6 +47,7 @@
           <p class="label">App</p>
           <strong id="app-name">Not loaded</strong>
           <span id="phase" class="muted">Waiting for token</span>
+          <span id="status-error" class="section-error" role="status"></span>
         </article>
         <article class="panel status-card">
           <p class="label">Mode / Focus</p>
@@ -66,6 +71,7 @@
           <h2 id="projects-title">Projects</h2>
           <span class="badge small">Read-only</span>
         </div>
+        <p id="projects-error" class="section-error" role="status"></p>
         <div id="projects" class="project-grid empty">No data loaded.</div>
       </section>
 
@@ -75,6 +81,7 @@
             <h2>Recent Memory</h2>
             <span class="badge small">Read-only</span>
           </div>
+          <p id="memory-error" class="section-error" role="status"></p>
           <ul id="memory" class="item-list empty">
             <li>No data loaded.</li>
           </ul>
@@ -85,6 +92,7 @@
             <h2>Tasks</h2>
             <span class="badge small">Read-only</span>
           </div>
+          <p id="tasks-error" class="section-error" role="status"></p>
           <ul id="tasks" class="item-list empty">
             <li>No data loaded.</li>
           </ul>
@@ -95,6 +103,7 @@
             <h2>Recent Conversations</h2>
             <span class="badge small">Read-only</span>
           </div>
+          <p id="conversations-error" class="section-error" role="status"></p>
           <ul id="conversations" class="item-list empty">
             <li>No data loaded.</li>
           </ul>

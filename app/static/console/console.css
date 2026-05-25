@@ -7,6 +7,9 @@
   --border: #d8dee6;
   --accent: #1b6f7a;
   --accent-strong: #13535b;
+  --danger: #9f2f2f;
+  --danger-bg: #fff1f1;
+  --danger-border: #efb4b4;
   --warning-bg: #fff7e6;
   --warning-border: #e8bd64;
 }
@@ -53,6 +56,12 @@ input {
   margin-bottom: 20px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 h1,
 h2,
 p {
@@ -79,6 +88,7 @@ code {
 .label,
 .muted,
 .auth-message,
+.last-refreshed,
 .meta {
   color: var(--muted);
 }
@@ -86,6 +96,7 @@ code {
 .eyebrow,
 .label,
 .badge,
+.last-refreshed,
 .meta {
   font-size: 12px;
 }
@@ -160,6 +171,22 @@ code {
   cursor: pointer;
 }
 
+.refresh-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+
+.refresh-button:disabled,
+.token-form button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .token-form button[type="button"] {
   background: #ffffff;
   color: var(--accent-strong);
@@ -167,6 +194,25 @@ code {
 
 .auth-message {
   min-height: 20px;
+}
+
+.last-refreshed {
+  margin-top: 0;
+}
+
+.section-error {
+  display: none;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--danger-border);
+  border-radius: 6px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.section-error.visible {
+  display: block;
 }
 
 .status-grid,
