@@ -80,6 +80,77 @@ def test_console_ui_assets_are_served_without_exposing_token():
         assert CONSOLE_TEST_TOKEN not in response.text
 
 
+def test_console_ui_browser_smoke_contract_for_read_only_interactions():
+    page = client.get("/console-ui")
+    script = client.get("/console-ui/assets/console.js")
+
+    assert page.status_code == 200
+    assert script.status_code == 200
+    assert 'id="token-form"' in page.text
+    assert 'id="token-input"' in page.text
+    assert 'id="refresh-data"' in page.text
+    assert 'id="clear-token"' in page.text
+    assert 'id="last-refreshed"' in page.text
+    assert 'src="/console-ui/assets/console.js"' in page.text
+
+    source = script.text
+    assert 'const TOKEN_KEY = "bishop.console.token";' in source
+    assert "sessionStorage.setItem(TOKEN_KEY, token);" in source
+    assert "sessionStorage.removeItem(TOKEN_KEY);" in source
+    assert "loadConsoleData(storedToken());" in source
+    assert "Last refreshed: never" in source
+    assert "setLastRefreshed(new Date());" in source
+    assert "Promise.all(" in source
+    assert "setSectionError(name, `Could not load this section." in source
+    assert "Some Console sections could not load. Check section errors." in source
+
+    add_memory("matt", "note", "Console UI smoke memory", lane="matt")
+    add_task(
+        user_id="matt",
+        lane="matt",
+        source_message="add task console ui smoke",
+        task_text="console ui smoke",
+        assistant_commitment="I'll track it.",
+    )
+    log_conversation(
+        platform="slack",
+        user_id="matt",
+        channel_id="C123",
+        session_id="S123",
+        user_message="console ui smoke question",
+        assistant_response="console ui smoke answer",
+    )
+
+    loaded = {}
+    for path in CONSOLE_PATHS:
+        response = client.get(path, headers=CONSOLE_HEADERS)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["read_only"] is True
+        loaded[path] = payload
+
+    assert loaded["/console/status"]["counts"]["memory"] >= 1
+    assert any(
+        item["content"] == "Console UI smoke memory"
+        for item in loaded["/console/memory"]["items"]
+    )
+    assert any(
+        item["task_text"] == "console ui smoke"
+        for item in loaded["/console/tasks"]["items"]
+    )
+    assert any(
+        item["user_message"] == "console ui smoke question"
+        for item in loaded["/console/conversations"]["items"]
+    )
+
+    failed_section = client.get("/console/memory")
+    still_loaded = client.get("/console/tasks", headers=CONSOLE_HEADERS)
+
+    assert failed_section.status_code == 401
+    assert still_loaded.status_code == 200
+    assert still_loaded.json()["read_only"] is True
+
+
 def test_console_status_returns_read_only_summary(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "secret-openai-key")
     monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "secret-slack-token")
