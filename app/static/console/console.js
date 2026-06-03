@@ -2,6 +2,7 @@ const TOKEN_KEY = "bishop.console.token";
 const endpoints = {
   status: "/console/status",
   projects: "/console/projects",
+  nextActions: "/console/next-actions",
   memory: "/console/memory",
   tasks: "/console/tasks",
   conversations: "/console/conversations",
@@ -32,6 +33,11 @@ const sections = {
     errorSelector: "#projects-error",
     loading: () => setContainerLoading("#projects", "Loading projects..."),
     render: renderProjects,
+  },
+  nextActions: {
+    errorSelector: "#next-actions-error",
+    loading: () => setListLoading("#next-actions", "Loading recommended next moves..."),
+    render: renderNextActions,
   },
   memory: {
     errorSelector: "#memory-error",
@@ -243,6 +249,21 @@ function renderTasks(data) {
         text(item.source_message, ""),
       ),
     "No tasks returned.",
+  );
+}
+
+function renderNextActions(data) {
+  clearSectionError("nextActions");
+  renderList(
+    "#next-actions",
+    data.items,
+    (item) =>
+      listItem(
+        text(item.title, "Next move"),
+        itemMeta([`lane: ${text(item.lane, "unknown")}`, text(item.created_at), "read-only"]),
+        text(item.source_message, ""),
+      ),
+    "No recommended next moves returned.",
   );
 }
 

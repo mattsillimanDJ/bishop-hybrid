@@ -20,6 +20,7 @@ CONSOLE_HEADERS = {"X-Bishop-Console-Token": CONSOLE_TEST_TOKEN}
 CONSOLE_PATHS = [
     "/console/status",
     "/console/projects",
+    "/console/next-actions",
     "/console/memory",
     "/console/tasks",
     "/console/conversations",
@@ -91,10 +92,13 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert 'id="refresh-data"' in page.text
     assert 'id="clear-token"' in page.text
     assert 'id="last-refreshed"' in page.text
+    assert 'id="next-actions"' in page.text
+    assert "Recommended Next Moves" in page.text
     assert 'src="/console-ui/assets/console.js"' in page.text
 
     source = script.text
     assert 'const TOKEN_KEY = "bishop.console.token";' in source
+    assert 'nextActions: "/console/next-actions"' in source
     assert "sessionStorage.setItem(TOKEN_KEY, token);" in source
     assert "sessionStorage.removeItem(TOKEN_KEY);" in source
     assert "loadConsoleData(storedToken());" in source
@@ -137,6 +141,10 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert any(
         item["task_text"] == "console ui smoke"
         for item in loaded["/console/tasks"]["items"]
+    )
+    assert any(
+        item["title"] == "console ui smoke"
+        for item in loaded["/console/next-actions"]["items"]
     )
     assert any(
         item["user_message"] == "console ui smoke question"
@@ -284,6 +292,50 @@ def test_console_tasks_returns_existing_tasks_only():
     assert any(item["task_text"] == "write console test" for item in data["items"])
 
 
+def test_console_next_actions_returns_pending_tasks_only_newest_first():
+    older = add_task(
+        user_id="matt",
+        lane="work",
+        source_message="add task older next move",
+        task_text="older next move",
+        assistant_commitment="I'll track it.",
+    )
+    newer = add_task(
+        user_id="matt",
+        lane="bishop",
+        source_message="add task newer next move",
+        task_text="newer next move",
+        assistant_commitment="I'll track it.",
+    )
+    done = add_task(
+        user_id="matt",
+        lane="work",
+        source_message="add task completed next move",
+        task_text="completed next move",
+        assistant_commitment="I'll track it.",
+    )
+    mark_task_done("matt", done["task_text"], lane="work")
+
+    response = client.get("/console/next-actions", headers=CONSOLE_HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["console_phase"] == "phase_1_read_only"
+    assert data["read_only"] is True
+    assert data["strategy"] == "pending_tasks_newest_first"
+    assert data["schema_limited"] is False
+    assert data["count"] == 2
+    assert [item["title"] for item in data["items"]] == [
+        newer["task_text"],
+        older["task_text"],
+    ]
+    assert all(item["read_only"] is True for item in data["items"])
+    assert all(item["title"] != done["task_text"] for item in data["items"])
+    assert data["items"][0]["lane"] == "bishop"
+    assert data["items"][0]["source_message"] == "add task newer next move"
+    assert data["items"][0]["created_at"]
+
+
 def test_console_task_endpoints_support_legacy_task_schema_without_lane():
     with task_service.get_connection() as conn:
         conn.execute("DROP TABLE tasks")
@@ -329,7 +381,12 @@ def test_console_task_endpoints_support_legacy_task_schema_without_lane():
 
     responses = {
         path: client.get(path, headers=CONSOLE_HEADERS)
-        for path in ["/console/tasks", "/console/status", "/console/projects"]
+        for path in [
+            "/console/tasks",
+            "/console/next-actions",
+            "/console/status",
+            "/console/projects",
+        ]
     }
 
     for response in responses.values():
@@ -343,6 +400,12 @@ def test_console_task_endpoints_support_legacy_task_schema_without_lane():
     assert task_payload["items"][0]["lane"] is None
     assert task_payload["items"][0]["updated_at"] is None
     assert task_payload["items"][0]["schema_limited"] is True
+
+    next_actions_payload = responses["/console/next-actions"].json()
+    assert next_actions_payload["schema_limited"] is True
+    assert next_actions_payload["items"][0]["title"] == "legacy task without lane"
+    assert next_actions_payload["items"][0]["lane"] == "unknown"
+    assert next_actions_payload["items"][0]["read_only"] is True
 
     status_payload = responses["/console/status"].json()
     assert status_payload["counts"]["pending_tasks"] >= 1
@@ -358,6 +421,58 @@ def test_console_task_endpoints_support_legacy_task_schema_without_lane():
             dict(row)
             for row in conn.execute(
                 "SELECT id, user_id, status, source_message, task_text, assistant_commitment, created_at FROM tasks"
+            ).fetchall()
+        ]
+
+    assert after_rows == before_rows
+
+
+def test_console_next_actions_fails_safely_without_required_task_columns():
+    with task_service.get_connection() as conn:
+        conn.execute("DROP TABLE tasks")
+        conn.execute(
+            """
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                source_message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO tasks (user_id, source_message)
+            VALUES (?, ?)
+            """,
+            ("matt", "legacy source without status and task text"),
+        )
+        conn.commit()
+        before_rows = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT id, user_id, source_message, created_at FROM tasks"
+            ).fetchall()
+        ]
+
+    response = client.get("/console/next-actions", headers=CONSOLE_HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {
+        "console_phase": "phase_1_read_only",
+        "read_only": True,
+        "strategy": "pending_tasks_newest_first",
+        "schema_limited": True,
+        "count": 0,
+        "items": [],
+    }
+
+    with task_service.get_connection() as conn:
+        after_rows = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT id, user_id, source_message, created_at FROM tasks"
             ).fetchall()
         ]
 
@@ -407,6 +522,7 @@ def test_console_routes_do_not_allow_write_methods():
     for path in [
         "/console/status",
         "/console/projects",
+        "/console/next-actions",
         "/console/memory",
         "/console/tasks",
         "/console/conversations",
@@ -457,6 +573,7 @@ def test_console_reads_do_not_mutate_memory_tasks_or_conversations():
 
     assert client.get("/console/status", headers=CONSOLE_HEADERS).status_code == 200
     assert client.get("/console/projects", headers=CONSOLE_HEADERS).status_code == 200
+    assert client.get("/console/next-actions", headers=CONSOLE_HEADERS).status_code == 200
     assert client.get("/console/memory", headers=CONSOLE_HEADERS).status_code == 200
     assert client.get("/console/tasks", headers=CONSOLE_HEADERS).status_code == 200
     assert client.get("/console/conversations", headers=CONSOLE_HEADERS).status_code == 200

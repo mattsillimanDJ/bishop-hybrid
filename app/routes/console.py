@@ -28,6 +28,13 @@ CONSOLE_TASK_FIELDS = (
     "created_at",
     "updated_at",
 )
+CONSOLE_NEXT_ACTION_FIELDS = (
+    "id",
+    "lane",
+    "task_text",
+    "source_message",
+    "created_at",
+)
 
 
 def require_console_auth(
@@ -221,6 +228,17 @@ def _console_task(item: dict) -> dict:
     }
 
 
+def _console_next_action(item: dict) -> dict:
+    return {
+        "id": item.get("id"),
+        "lane": item.get("lane") or "unknown",
+        "title": item.get("task_text"),
+        "source_message": item.get("source_message"),
+        "created_at": item.get("created_at"),
+        "read_only": True,
+    }
+
+
 def _console_conversation(item: dict) -> dict:
     return {
         "id": item.get("id"),
@@ -232,6 +250,58 @@ def _console_conversation(item: dict) -> dict:
         "created_at": item.get("created_at"),
         "memory_used": bool(item.get("memory_used")),
         "read_only": True,
+    }
+
+
+@router.get("/next-actions")
+def console_next_actions(limit: int = Query(default=10, ge=1, le=25)) -> dict:
+    with get_task_connection() as conn:
+        columns = _table_columns(conn, "tasks")
+        selected_columns = [
+            column for column in CONSOLE_NEXT_ACTION_FIELDS if column in columns
+        ]
+        schema_limited = any(
+            column not in columns for column in CONSOLE_NEXT_ACTION_FIELDS
+        )
+
+        if "status" not in columns or "task_text" not in columns:
+            return {
+                "console_phase": CONSOLE_PHASE,
+                "read_only": True,
+                "strategy": "pending_tasks_newest_first",
+                "schema_limited": True,
+                "count": 0,
+                "items": [],
+            }
+
+        if "created_at" in columns and "id" in columns:
+            order_by = "created_at DESC, id DESC"
+        elif "created_at" in columns:
+            order_by = "created_at DESC"
+        elif "id" in columns:
+            order_by = "id DESC"
+        else:
+            order_by = "ROWID DESC"
+
+        rows = conn.execute(
+            f"""
+            SELECT {", ".join(selected_columns)}
+            FROM tasks
+            WHERE status = 'pending'
+            ORDER BY {order_by}
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    items = [_console_next_action(dict(row)) for row in rows]
+    return {
+        "console_phase": CONSOLE_PHASE,
+        "read_only": True,
+        "strategy": "pending_tasks_newest_first",
+        "schema_limited": schema_limited,
+        "count": len(items),
+        "items": items,
     }
 
 
