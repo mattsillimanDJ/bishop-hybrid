@@ -27,6 +27,10 @@
             Console data. The token is stored only in this browser session.
           </p>
         </div>
+        <div class="auth-ready">
+          <strong>Token connected</strong>
+          <span>Read-only Console data is available in this browser session.</span>
+        </div>
         <form id="token-form" class="token-form">
           <input
             id="token-input"
@@ -36,10 +40,29 @@
             aria-label="Console API token"
           />
           <button type="submit">Load</button>
+          <button type="button" id="change-token">Change token</button>
           <button type="button" id="clear-token">Clear token</button>
         </form>
         <p id="auth-message" class="auth-message" role="status"></p>
         <p id="last-refreshed" class="last-refreshed">Last refreshed: never</p>
+      </section>
+
+      <section class="dashboard-grid" aria-label="Daily operating dashboard">
+        <article class="panel hero-card">
+          <p class="label">Current Focus</p>
+          <strong id="current-focus">Waiting for token</strong>
+          <span id="current-mode" class="muted">Mode: -</span>
+          <span id="current-lane" class="muted">Lane: -</span>
+          <span id="current-provider" class="muted">Provider: -</span>
+        </article>
+
+        <article class="panel hero-card">
+          <p class="label">Today Summary</p>
+          <strong id="today-summary">No data loaded</strong>
+          <span id="today-tasks" class="muted">Pending tasks: -</span>
+          <span id="today-conversations" class="muted">Conversations: -</span>
+          <span id="today-memory" class="muted">Memory: -</span>
+        </article>
       </section>
 
       <section class="status-grid" aria-label="Console status">
@@ -66,15 +89,6 @@
         </article>
       </section>
 
-      <section class="panel" aria-labelledby="projects-title">
-        <div class="section-heading">
-          <h2 id="projects-title">Projects</h2>
-          <span class="badge small">Read-only</span>
-        </div>
-        <p id="projects-error" class="section-error" role="status"></p>
-        <div id="projects" class="project-grid empty">No data loaded.</div>
-      </section>
-
       <section class="panel" aria-labelledby="next-actions-title">
         <div class="section-heading">
           <h2 id="next-actions-title">Recommended Next Moves</h2>
@@ -84,6 +98,15 @@
         <ul id="next-actions" class="item-list empty">
           <li>No data loaded.</li>
         </ul>
+      </section>
+
+      <section class="panel" aria-labelledby="projects-title">
+        <div class="section-heading">
+          <h2 id="projects-title">Projects</h2>
+          <span class="badge small">Read-only</span>
+        </div>
+        <p id="projects-error" class="section-error" role="status"></p>
+        <div id="projects" class="project-grid empty">No data loaded.</div>
       </section>
 
       <section class="content-grid">

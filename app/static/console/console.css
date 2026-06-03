@@ -142,8 +142,40 @@ code {
   border-color: var(--warning-border);
 }
 
+.auth-ready {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent-strong);
+}
+
+.auth-ready span {
+  color: var(--muted);
+}
+
 .auth-panel p {
   margin-top: 6px;
+}
+
+.auth-panel.authenticated {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  background: #eef8f3;
+  border-color: #9fd0b4;
+}
+
+.auth-panel.authenticated > div:first-child,
+.auth-panel.authenticated input,
+.auth-panel.authenticated button[type="submit"] {
+  display: none;
+}
+
+.auth-panel.authenticated .auth-ready {
+  display: flex;
+}
+
+.auth-panel.authenticated .token-form {
+  justify-content: flex-end;
 }
 
 .token-form {
@@ -216,22 +248,38 @@ code {
 }
 
 .status-grid,
+.dashboard-grid,
 .content-grid,
 .project-grid {
   display: grid;
   gap: 18px;
 }
 
+.dashboard-grid {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+}
+
 .status-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.hero-card,
 .status-card {
   min-height: 112px;
   align-items: flex-start;
   flex-direction: column;
   justify-content: center;
   gap: 6px;
+}
+
+.hero-card {
+  display: flex;
+  min-height: 168px;
+}
+
+.hero-card strong {
+  font-size: 30px;
+  line-height: 1.15;
 }
 
 .status-card strong {
@@ -255,6 +303,13 @@ code {
 .project-card h3 {
   margin: 0 0 8px;
   font-size: 17px;
+}
+
+.project-card .health {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--accent-strong);
+  font-size: 13px;
 }
 
 .project-card p {
@@ -296,9 +351,18 @@ code {
 
 @media (max-width: 900px) {
   .status-grid,
+  .dashboard-grid,
   .project-grid,
   .content-grid {
     grid-template-columns: 1fr;
+  }
+
+  .auth-panel.authenticated {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-panel.authenticated .token-form {
+    justify-content: flex-start;
   }
 
   .shell {

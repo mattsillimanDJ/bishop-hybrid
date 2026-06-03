@@ -10,6 +10,8 @@ const endpoints = {
 
 const tokenForm = document.querySelector("#token-form");
 const tokenInput = document.querySelector("#token-input");
+const authPanel = document.querySelector(".auth-panel");
+const changeTokenButton = document.querySelector("#change-token");
 const clearTokenButton = document.querySelector("#clear-token");
 const refreshButton = document.querySelector("#refresh-data");
 const authMessage = document.querySelector("#auth-message");
@@ -26,6 +28,14 @@ const sections = {
       setText("#provider", "-");
       setText("#research", "Research: -");
       setText("#counts", "-");
+      setText("#current-focus", "Loading...");
+      setText("#current-mode", "Mode: -");
+      setText("#current-lane", "Lane: -");
+      setText("#current-provider", "Provider: -");
+      setText("#today-summary", "Loading snapshot...");
+      setText("#today-tasks", "Pending tasks: -");
+      setText("#today-conversations", "Conversations: -");
+      setText("#today-memory", "Memory: -");
     },
     render: renderStatus,
   },
@@ -80,6 +90,10 @@ function setRefreshing(isRefreshing) {
   tokenForm.querySelector("button[type='submit']").disabled = isRefreshing;
 }
 
+function setAuthCollapsed(isCollapsed) {
+  authPanel.classList.toggle("authenticated", isCollapsed);
+}
+
 function setSectionError(name, message) {
   const errorNode = document.querySelector(sections[name].errorSelector);
   errorNode.textContent = message || "";
@@ -118,6 +132,7 @@ function clearToken() {
   sessionStorage.removeItem(TOKEN_KEY);
   tokenInput.value = "";
   lastRefreshed.textContent = "Last refreshed: never";
+  setAuthCollapsed(false);
   setAuthMessage("Token cleared. Paste the local Console API token to load data.");
 }
 
@@ -141,6 +156,11 @@ function itemMeta(parts) {
 
 function renderStatus(data) {
   clearSectionError("status");
+  const counts = data.counts || {};
+  const pendingTasks = text(counts.pending_tasks, 0);
+  const recentConversations = text(counts.recent_conversations, 0);
+  const memoryItems = text(counts.memory, 0);
+
   setText("#app-name", text(data.app_name, "Bishop"));
   setText("#phase", `${text(data.console_phase)} | read-only: ${data.read_only === true}`);
   setText("#mode-focus", `${text(data.mode)} / ${text(data.focus)}`);
@@ -152,8 +172,30 @@ function renderStatus(data) {
   );
   setText(
     "#counts",
-    `${text(data.counts?.memory, 0)} memory | ${text(data.counts?.pending_tasks, 0)} pending | ${text(data.counts?.recent_conversations, 0)} conversations`,
+    `${memoryItems} memory | ${pendingTasks} pending | ${recentConversations} conversations`,
   );
+  setText("#current-focus", text(data.focus, "No active focus"));
+  setText("#current-mode", `Mode: ${text(data.mode)}`);
+  setText("#current-lane", `Lane: ${text(data.lane)}`);
+  setText("#current-provider", `Provider: ${text(data.provider?.effective_provider)}`);
+  setText("#today-summary", `${pendingTasks} pending | ${recentConversations} conversations`);
+  setText("#today-tasks", `Pending tasks: ${pendingTasks}`);
+  setText("#today-conversations", `Conversations logged: ${recentConversations}`);
+  setText("#today-memory", `Memory items: ${memoryItems}`);
+}
+
+function projectHealth(project) {
+  const counts = project.available_counts || {};
+  if (counts.task_schema_limited) {
+    return "Health: limited task data";
+  }
+  if ((counts.pending_tasks || 0) > 0) {
+    return `Health: active | ${counts.pending_tasks} pending`;
+  }
+  if ((counts.memory || 0) > 0) {
+    return "Health: context ready";
+  }
+  return "Health: quiet";
 }
 
 function renderProjects(data) {
@@ -173,10 +215,12 @@ function renderProjects(data) {
     card.className = "project-card";
     card.innerHTML = `
       <h3></h3>
+      <strong class="health"></strong>
       <p></p>
       <p class="meta"></p>
     `;
     card.querySelector("h3").textContent = text(project.name);
+    card.querySelector(".health").textContent = projectHealth(project);
     card.querySelector("p").textContent = text(project.description, "");
     card.querySelector(".meta").textContent = itemMeta([
       `focus: ${text(project.focus_key)}`,
@@ -284,10 +328,12 @@ function renderConversations(data) {
 
 async function loadConsoleData(token) {
   if (!token) {
+    setAuthCollapsed(false);
     setAuthMessage("Missing token. Paste the local CONSOLE_API_TOKEN value to load data.");
     return;
   }
 
+  setAuthCollapsed(false);
   setAuthMessage("Loading read-only Console data...");
   setRefreshing(true);
 
@@ -315,10 +361,12 @@ async function loadConsoleData(token) {
   }
 
   if (loadedCount === results.length) {
+    setAuthCollapsed(true);
     setAuthMessage("Read-only Console data loaded.");
   } else if (loadedCount > 0) {
     setAuthMessage("Some Console sections could not load. Check section errors.");
   } else {
+    setAuthCollapsed(false);
     setAuthMessage("Could not load Console data. Check CONSOLE_API_TOKEN and server config.");
   }
 }
@@ -331,6 +379,12 @@ tokenForm.addEventListener("submit", (event) => {
 });
 
 clearTokenButton.addEventListener("click", clearToken);
+
+changeTokenButton.addEventListener("click", () => {
+  setAuthCollapsed(false);
+  tokenInput.focus();
+  setAuthMessage("Paste a different Console API token, then load again.");
+});
 
 refreshButton.addEventListener("click", () => {
   loadConsoleData(storedToken());

@@ -71,6 +71,8 @@ def test_console_ui_shell_is_served_without_exposing_token():
         assert "Read-only" in response.text
         assert "Refresh" in response.text
         assert "Last refreshed: never" in response.text
+        assert "Current Focus" in response.text
+        assert "Today Summary" in response.text
         assert CONSOLE_TEST_TOKEN not in response.text
 
 
@@ -90,17 +92,28 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert 'id="token-form"' in page.text
     assert 'id="token-input"' in page.text
     assert 'id="refresh-data"' in page.text
+    assert 'id="change-token"' in page.text
     assert 'id="clear-token"' in page.text
     assert 'id="last-refreshed"' in page.text
+    assert 'id="current-focus"' in page.text
+    assert 'id="today-summary"' in page.text
     assert 'id="next-actions"' in page.text
+    assert page.text.index("Recommended Next Moves") < page.text.index("Projects")
     assert "Recommended Next Moves" in page.text
+    assert "Today Summary" in page.text
     assert 'src="/console-ui/assets/console.js"' in page.text
 
     source = script.text
     assert 'const TOKEN_KEY = "bishop.console.token";' in source
+    assert 'const authPanel = document.querySelector(".auth-panel");' in source
     assert 'nextActions: "/console/next-actions"' in source
     assert "sessionStorage.setItem(TOKEN_KEY, token);" in source
     assert "sessionStorage.removeItem(TOKEN_KEY);" in source
+    assert 'authPanel.classList.toggle("authenticated", isCollapsed);' in source
+    assert 'changeTokenButton.addEventListener("click"' in source
+    assert "projectHealth(project)" in source
+    assert 'setText("#current-focus", text(data.focus, "No active focus"));' in source
+    assert 'setText("#today-summary", `${pendingTasks} pending | ${recentConversations} conversations`);' in source
     assert "loadConsoleData(storedToken());" in source
     assert "Last refreshed: never" in source
     assert "setLastRefreshed(new Date());" in source
