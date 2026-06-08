@@ -2,11 +2,14 @@
   color-scheme: light;
   --bg: #f6f7f9;
   --panel: #ffffff;
+  --panel-subtle: #fbfcfd;
   --text: #17202a;
   --muted: #617080;
   --border: #d8dee6;
+  --border-soft: #e8edf2;
   --accent: #1b6f7a;
   --accent-strong: #13535b;
+  --focus-bg: #eef8f3;
   --danger: #9f2f2f;
   --danger-bg: #fff1f1;
   --danger-border: #efb4b4;
@@ -194,7 +197,7 @@ code {
 }
 
 .token-form button {
-  height: 40px;
+  min-height: 42px;
   padding: 0 14px;
   border: 1px solid var(--accent);
   border-radius: 6px;
@@ -204,8 +207,8 @@ code {
 }
 
 .refresh-button {
-  min-height: 36px;
-  padding: 0 12px;
+  min-height: 42px;
+  padding: 0 14px;
   border: 1px solid var(--accent);
   border-radius: 6px;
   background: #ffffff;
@@ -257,6 +260,13 @@ code {
 
 .dashboard-grid {
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+
+.command-center .hero-card:first-child {
+  border-color: #9fd0b4;
+  background: var(--focus-bg);
 }
 
 .status-grid {
@@ -275,11 +285,18 @@ code {
 .hero-card {
   display: flex;
   min-height: 168px;
+  margin-bottom: 0;
 }
 
 .hero-card strong {
   font-size: 30px;
   line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.hero-card .muted,
+.status-card .muted {
+  line-height: 1.35;
 }
 
 .status-card strong {
@@ -297,7 +314,7 @@ code {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fbfcfd;
+  background: var(--panel-subtle);
 }
 
 .project-card h3 {
@@ -314,6 +331,7 @@ code {
 
 .project-card p {
   color: var(--muted);
+  line-height: 1.4;
 }
 
 .content-grid {
@@ -336,7 +354,7 @@ code {
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fbfcfd;
+  background: var(--panel-subtle);
 }
 
 .item-title {
@@ -368,5 +386,189 @@ code {
   .shell {
     width: min(100% - 24px, 1180px);
     padding-top: 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  .shell {
+    width: min(100% - 20px, 1180px);
+    padding: 14px 0 32px;
+  }
+
+  .topbar,
+  .section-heading {
+    align-items: flex-start;
+  }
+
+  .topbar {
+    margin-bottom: 14px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+
+  h2 {
+    font-size: 17px;
+  }
+
+  .panel {
+    margin-bottom: 12px;
+    padding: 14px;
+  }
+
+  .auth-panel {
+    gap: 12px;
+  }
+
+  .auth-ready {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .token-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .token-form input {
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100%;
+    height: 44px;
+  }
+
+  .token-form button,
+  .refresh-button {
+    min-height: 44px;
+  }
+
+  .token-form button[type="submit"] {
+    grid-column: 1 / -1;
+  }
+
+  .auth-panel.authenticated .token-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .dashboard-grid,
+  .status-grid,
+  .content-grid,
+  .project-grid {
+    gap: 10px;
+  }
+
+  .dashboard-grid {
+    margin-bottom: 12px;
+  }
+
+  .hero-card,
+  .status-card {
+    min-height: auto;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+
+  .hero-card {
+    padding: 16px;
+  }
+
+  .hero-card strong {
+    font-size: 23px;
+    line-height: 1.18;
+  }
+
+  .status-card strong {
+    font-size: 18px;
+  }
+
+  .status-grid {
+    margin-bottom: 12px;
+  }
+
+  .status-card {
+    border-color: var(--border-soft);
+    background: var(--panel-subtle);
+  }
+
+  .priority-panel {
+    margin-bottom: 12px;
+  }
+
+  .supporting-panel,
+  .raw-panel {
+    border-color: var(--border-soft);
+    background: #fcfdfe;
+  }
+
+  .transparency-grid {
+    margin-top: 4px;
+  }
+
+  .raw-panel {
+    padding: 12px;
+  }
+
+  .raw-panel h2 {
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  .raw-panel .badge.small {
+    border-color: var(--border-soft);
+    background: #ffffff;
+    color: var(--muted);
+  }
+
+  .project-grid {
+    margin-top: 10px;
+  }
+
+  .project-card {
+    min-height: auto;
+    padding: 12px;
+  }
+
+  .item-list {
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .item-list li {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  .topbar {
+    flex-direction: column;
+  }
+
+  .section-heading {
+    gap: 8px;
+  }
+
+  .badge.small {
+    min-height: 22px;
+    padding: 2px 7px;
+  }
+
+  .token-form {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-panel.authenticated .token-form {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-card strong {
+    font-size: 21px;
   }
 }

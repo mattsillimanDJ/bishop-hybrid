@@ -105,6 +105,9 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert 'id="changed-today"' in page.text
     assert 'id="attention-projects"' in page.text
     assert 'id="next-actions"' in page.text
+    assert 'class="dashboard-grid command-center"' in page.text
+    assert 'class="content-grid transparency-grid"' in page.text
+    assert 'class="panel raw-panel"' in page.text
     assert page.text.index("What Changed Today") < page.text.index("Pending Task Queue")
     assert "Next Useful Action" in page.text
     assert "Projects Needing Attention" in page.text
