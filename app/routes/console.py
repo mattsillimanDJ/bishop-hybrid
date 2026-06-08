@@ -2,16 +2,19 @@ import hmac
 import sqlite3
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 
 from app.config import settings
 from app.services.conversation_log_service import get_recent_conversations
 from app.services.focus_service import VALID_FOCUSES, get_active_focus
+from app.services.focus_service import set_active_focus
 from app.services.memory_service import get_connection as get_memory_connection
+from app.services.memory_service import add_memory
 from app.services.memory_service import get_memories
 from app.services.mode_service import get_mode
 from app.services.provider_state_service import get_provider_resolution
 from app.services.research_service import validate_research_config
+from app.services.task_service import add_task
 from app.services.task_service import get_connection as get_task_connection
 
 
@@ -136,6 +139,9 @@ PROJECTS = [
         "recommended_modes": ["personal", "default"],
     },
 ]
+CONSOLE_CAPTURE_LANES = tuple(
+    sorted({CONSOLE_GENERAL_LANE, *(project["focus_key"] for project in PROJECTS)})
+)
 
 
 def _fetch_count(connection_factory, sql: str, params: tuple[Any, ...] = ()) -> int:
@@ -258,6 +264,24 @@ def _brief_text(value: str | None, fallback: str, limit: int = 140) -> str:
 
 def _row_dicts(rows) -> list[dict]:
     return [dict(row) for row in rows]
+
+
+def _payload_value(payload: dict[str, Any] | None, key: str) -> str:
+    if not payload:
+        return ""
+    value = payload.get(key)
+    return " ".join(str(value or "").split())
+
+
+def _validated_capture_lane(payload: dict[str, Any] | None) -> str:
+    lane = _payload_value(payload, "lane") or CONSOLE_GENERAL_LANE
+    normalized = lane.lower()
+    if normalized not in CONSOLE_CAPTURE_LANES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose a valid Console lane.",
+        )
+    return normalized
 
 
 def _order_by_for_columns(columns: set[str]) -> str:
@@ -851,6 +875,98 @@ def console_projects() -> dict:
         "read_only": True,
         "mapping": "lightweight_inferred",
         "items": items,
+    }
+
+
+@router.post("/tasks")
+def console_add_task(payload: dict[str, Any] | None = Body(default=None)) -> dict:
+    task_text = _payload_value(payload, "task_text") or _payload_value(payload, "text")
+    if not task_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Task text is required.",
+        )
+
+    lane = _validated_capture_lane(payload)
+    task = add_task(
+        user_id=CONSOLE_USER_ID,
+        lane=lane,
+        source_message=f"Console capture: {task_text}",
+        task_text=task_text,
+        assistant_commitment="Captured from Bishop Console.",
+    )
+    return {
+        "console_phase": CONSOLE_PHASE,
+        "action": "task_added",
+        "message": (
+            "Task already existed in this lane."
+            if task.get("deduped")
+            else "Task captured."
+        ),
+        "created": bool(task.get("created")),
+        "deduped": bool(task.get("deduped")),
+        "item": {
+            "id": task.get("id"),
+            "task_text": task.get("task_text"),
+            "status": task.get("status"),
+            "lane": task.get("lane"),
+        },
+    }
+
+
+@router.post("/memory")
+def console_add_memory(payload: dict[str, Any] | None = Body(default=None)) -> dict:
+    content = _payload_value(payload, "content")
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Memory content is required.",
+        )
+
+    lane = _validated_capture_lane(payload)
+    memory = add_memory(
+        user_id=CONSOLE_USER_ID,
+        category="note",
+        content=content,
+        lane=lane,
+        visibility="private",
+    )
+    skipped = bool(memory.get("skipped"))
+    return {
+        "console_phase": CONSOLE_PHASE,
+        "action": "memory_added",
+        "message": (
+            "Memory was not saved because it looked like basic identity clutter."
+            if skipped
+            else "Memory captured."
+        ),
+        "skipped": skipped,
+        "item": {
+            "id": memory.get("id"),
+            "category": memory.get("category"),
+            "content": memory.get("content"),
+            "lane": memory.get("lane"),
+            "visibility": memory.get("visibility"),
+        },
+    }
+
+
+@router.post("/focus")
+def console_set_focus(payload: dict[str, Any] | None = Body(default=None)) -> dict:
+    focus = _payload_value(payload, "focus").lower()
+    if focus not in VALID_FOCUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose a valid Console focus.",
+        )
+
+    active_focus = set_active_focus(CONSOLE_USER_ID, CONSOLE_DEFAULT_LANE, focus)
+    return {
+        "console_phase": CONSOLE_PHASE,
+        "action": "focus_set",
+        "message": f"Focus set to {_project_name(active_focus)}.",
+        "focus": active_focus,
+        "lane": CONSOLE_DEFAULT_LANE,
     }
 
 

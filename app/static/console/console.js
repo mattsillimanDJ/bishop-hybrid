@@ -7,6 +7,7 @@ const endpoints = {
   memory: "/console/memory",
   tasks: "/console/tasks",
   conversations: "/console/conversations",
+  focus: "/console/focus",
 };
 
 const tokenForm = document.querySelector("#token-form");
@@ -17,6 +18,9 @@ const clearTokenButton = document.querySelector("#clear-token");
 const refreshButton = document.querySelector("#refresh-data");
 const authMessage = document.querySelector("#auth-message");
 const lastRefreshed = document.querySelector("#last-refreshed");
+const taskCaptureForm = document.querySelector("#task-capture-form");
+const memoryCaptureForm = document.querySelector("#memory-capture-form");
+const focusCaptureForm = document.querySelector("#focus-capture-form");
 
 const sections = {
   dashboard: {
@@ -160,6 +164,53 @@ async function fetchConsole(path, token) {
   }
 
   return response.json();
+}
+
+async function postConsole(path, token, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Bishop-Console-Token": token,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.detail || `${path} returned ${response.status}`);
+  }
+
+  return data;
+}
+
+function setCaptureMessage(selector, message, isError = false) {
+  const node = document.querySelector(selector);
+  node.textContent = message;
+  node.classList.toggle("error", isError);
+  node.classList.toggle("success", Boolean(message) && !isError);
+}
+
+async function submitCapture({ form, endpoint, payload, messageSelector, success }) {
+  const token = storedToken();
+  if (!token) {
+    setCaptureMessage(messageSelector, "Paste the Console API token before capturing.", true);
+    return;
+  }
+
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  setCaptureMessage(messageSelector, "Saving...");
+
+  try {
+    const data = await postConsole(endpoint, token, payload);
+    setCaptureMessage(messageSelector, success(data));
+    await loadConsoleData(token);
+  } catch (error) {
+    setCaptureMessage(messageSelector, error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function itemMeta(parts) {
@@ -459,6 +510,67 @@ changeTokenButton.addEventListener("click", () => {
 
 refreshButton.addEventListener("click", () => {
   loadConsoleData(storedToken());
+});
+
+taskCaptureForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const taskText = document.querySelector("#task-text").value.trim();
+  const lane = document.querySelector("#task-lane").value;
+  if (!taskText) {
+    setCaptureMessage("#task-capture-message", "Task text is required.", true);
+    return;
+  }
+
+  submitCapture({
+    form: taskCaptureForm,
+    endpoint: endpoints.tasks,
+    payload: { task_text: taskText, lane },
+    messageSelector: "#task-capture-message",
+    success: (data) => {
+      document.querySelector("#task-text").value = "";
+      return data.message || "Task captured.";
+    },
+  });
+});
+
+memoryCaptureForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const content = document.querySelector("#memory-content").value.trim();
+  const lane = document.querySelector("#memory-lane").value;
+  if (!content) {
+    setCaptureMessage("#memory-capture-message", "Memory content is required.", true);
+    return;
+  }
+
+  submitCapture({
+    form: memoryCaptureForm,
+    endpoint: endpoints.memory,
+    payload: { content, lane },
+    messageSelector: "#memory-capture-message",
+    success: (data) => {
+      if (!data.skipped) {
+        document.querySelector("#memory-content").value = "";
+      }
+      return data.message || "Memory captured.";
+    },
+  });
+});
+
+focusCaptureForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const focus = document.querySelector("#focus-value").value;
+  if (!focus) {
+    setCaptureMessage("#focus-capture-message", "Choose a focus first.", true);
+    return;
+  }
+
+  submitCapture({
+    form: focusCaptureForm,
+    endpoint: endpoints.focus,
+    payload: { focus },
+    messageSelector: "#focus-capture-message",
+    success: (data) => data.message || "Focus set.",
+  });
 });
 
 const initialToken = storedToken();

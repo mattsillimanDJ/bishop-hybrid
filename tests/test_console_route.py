@@ -9,7 +9,7 @@ from app.services import task_service
 from app.services import memory_service
 from app.services.conversation_log_service import get_connection as get_conversation_connection
 from app.services.conversation_log_service import get_recent_conversations, log_conversation
-from app.services.focus_service import clear_active_focus, set_active_focus
+from app.services.focus_service import clear_active_focus, get_active_focus, set_active_focus
 from app.services.memory_service import add_memory, get_memories
 from app.services.mode_service import set_mode
 from app.services.task_service import add_task, get_tasks, mark_task_done
@@ -28,6 +28,11 @@ CONSOLE_PATHS = [
     "/console/tasks",
     "/console/conversations",
 ]
+CONSOLE_SAFE_POST_PATHS = [
+    "/console/tasks",
+    "/console/memory",
+    "/console/focus",
+]
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +45,10 @@ def test_console_routes_reject_missing_token():
         response = client.get(path)
         assert response.status_code == 401
         assert response.json() == {"detail": "Console authentication required"}
+    for path in CONSOLE_SAFE_POST_PATHS:
+        response = client.post(path, json={})
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Console authentication required"}
 
 
 def test_console_routes_reject_invalid_token():
@@ -48,12 +57,20 @@ def test_console_routes_reject_invalid_token():
         response = client.get(path, headers=headers)
         assert response.status_code == 401
         assert response.json() == {"detail": "Console authentication required"}
+    for path in CONSOLE_SAFE_POST_PATHS:
+        response = client.post(path, headers=headers, json={})
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Console authentication required"}
 
 
 def test_console_routes_fail_closed_when_token_is_not_configured(monkeypatch):
     monkeypatch.setattr(settings, "CONSOLE_API_TOKEN", "")
     for path in CONSOLE_PATHS:
         response = client.get(path, headers=CONSOLE_HEADERS)
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Console authentication required"}
+    for path in CONSOLE_SAFE_POST_PATHS:
+        response = client.post(path, headers=CONSOLE_HEADERS, json={})
         assert response.status_code == 401
         assert response.json() == {"detail": "Console authentication required"}
 
@@ -98,6 +115,15 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert 'id="change-token"' in page.text
     assert 'id="clear-token"' in page.text
     assert 'id="last-refreshed"' in page.text
+    assert 'id="task-capture-form"' in page.text
+    assert 'id="task-text"' in page.text
+    assert 'id="task-lane"' in page.text
+    assert 'id="memory-capture-form"' in page.text
+    assert 'id="memory-content"' in page.text
+    assert 'id="memory-lane"' in page.text
+    assert 'id="focus-capture-form"' in page.text
+    assert 'id="focus-value"' in page.text
+    assert 'value="general" selected>Operations' in page.text
     assert 'id="current-focus"' in page.text
     assert 'id="current-focus-reason"' in page.text
     assert 'id="today-summary"' in page.text
@@ -109,11 +135,16 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert 'class="content-grid transparency-grid"' in page.text
     assert 'class="panel raw-panel"' in page.text
     assert page.text.index("What Changed Today") < page.text.index("Pending Task Queue")
+    assert page.text.index("Feed Bishop") < page.text.index("Current Focus")
     assert "Next Useful Action" in page.text
     assert "Projects Needing Attention" in page.text
     assert "Pending Task Queue" in page.text
     assert "Project Inventory" in page.text
     assert "Today Summary" in page.text
+    assert "Safe Capture" in page.text
+    assert "Add Task" in page.text
+    assert "Remember This" in page.text
+    assert "Set Focus" in page.text
     assert 'src="/console-ui/assets/console.js"' in page.text
 
     source = script.text
@@ -121,6 +152,15 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert 'const authPanel = document.querySelector(".auth-panel");' in source
     assert 'dashboard: "/console/dashboard"' in source
     assert 'nextActions: "/console/next-actions"' in source
+    assert 'focus: "/console/focus"' in source
+    assert "async function postConsole(path, token, payload)" in source
+    assert 'taskCaptureForm.addEventListener("submit"' in source
+    assert 'memoryCaptureForm.addEventListener("submit"' in source
+    assert 'focusCaptureForm.addEventListener("submit"' in source
+    assert 'payload: { task_text: taskText, lane }' in source
+    assert 'payload: { content, lane }' in source
+    assert 'payload: { focus }' in source
+    assert "await loadConsoleData(token);" in source
     assert "sessionStorage.setItem(TOKEN_KEY, token);" in source
     assert "sessionStorage.removeItem(TOKEN_KEY);" in source
     assert 'authPanel.classList.toggle("authenticated", isCollapsed);' in source
@@ -734,7 +774,121 @@ def test_console_conversations_returns_existing_conversations_only():
     )
 
 
-def test_console_routes_do_not_allow_write_methods():
+def test_console_add_task_captures_pending_general_task():
+    response = client.post(
+        "/console/tasks",
+        headers=CONSOLE_HEADERS,
+        json={"task_text": "  Review the mobile capture panel  "},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["action"] == "task_added"
+    assert data["message"] == "Task captured."
+    assert data["created"] is True
+    assert data["deduped"] is False
+    assert data["item"]["task_text"] == "Review the mobile capture panel"
+    assert data["item"]["lane"] == "general"
+    assert data["item"]["status"] == "pending"
+
+    tasks = get_tasks(user_id="matt", lane="general", status="pending", limit=10)
+    assert any(
+        item["task_text"] == "Review the mobile capture panel"
+        and item["source_message"] == "Console capture: Review the mobile capture panel"
+        for item in tasks
+    )
+
+
+def test_console_add_task_rejects_blank_text_and_invalid_lane():
+    blank = client.post(
+        "/console/tasks",
+        headers=CONSOLE_HEADERS,
+        json={"task_text": "   "},
+    )
+    invalid_lane = client.post(
+        "/console/tasks",
+        headers=CONSOLE_HEADERS,
+        json={"task_text": "Review capture", "lane": "unknown"},
+    )
+
+    assert blank.status_code == 400
+    assert blank.json() == {"detail": "Task text is required."}
+    assert invalid_lane.status_code == 400
+    assert invalid_lane.json() == {"detail": "Choose a valid Console lane."}
+
+
+def test_console_add_memory_captures_private_general_memory():
+    response = client.post(
+        "/console/memory",
+        headers=CONSOLE_HEADERS,
+        json={"content": "  Mobile capture should stay safe and obvious.  "},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["action"] == "memory_added"
+    assert data["message"] == "Memory captured."
+    assert data["skipped"] is False
+    assert data["item"]["content"] == "Mobile capture should stay safe and obvious."
+    assert data["item"]["lane"] == "general"
+    assert data["item"]["visibility"] == "private"
+
+    memories = get_memories(user_id="matt", limit=20)
+    assert any(
+        item["content"] == "Mobile capture should stay safe and obvious."
+        and item["lane"] == "general"
+        and item["visibility"] == "private"
+        for item in memories
+    )
+
+
+def test_console_add_memory_rejects_blank_content_and_invalid_lane():
+    blank = client.post(
+        "/console/memory",
+        headers=CONSOLE_HEADERS,
+        json={"content": "   "},
+    )
+    invalid_lane = client.post(
+        "/console/memory",
+        headers=CONSOLE_HEADERS,
+        json={"content": "Remember this", "lane": "unknown"},
+    )
+
+    assert blank.status_code == 400
+    assert blank.json() == {"detail": "Memory content is required."}
+    assert invalid_lane.status_code == 400
+    assert invalid_lane.json() == {"detail": "Choose a valid Console lane."}
+
+
+def test_console_set_focus_accepts_only_valid_focus_values():
+    response = client.post(
+        "/console/focus",
+        headers=CONSOLE_HEADERS,
+        json={"focus": "  Bishop  "},
+    )
+    invalid = client.post(
+        "/console/focus",
+        headers=CONSOLE_HEADERS,
+        json={"focus": "general"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {
+        "console_phase": "phase_1_read_only",
+        "action": "focus_set",
+        "message": "Focus set to Bishop.",
+        "focus": "bishop",
+        "lane": "matt",
+    }
+    assert get_active_focus("matt", "matt") == "bishop"
+
+    assert invalid.status_code == 400
+    assert invalid.json() == {"detail": "Choose a valid Console focus."}
+    assert get_active_focus("matt", "matt") == "bishop"
+
+
+def test_console_routes_allow_only_approved_safe_post_methods():
     for path in [
         "/console/dashboard",
         "/console/status",
@@ -744,23 +898,32 @@ def test_console_routes_do_not_allow_write_methods():
         "/console/tasks",
         "/console/conversations",
     ]:
-        assert client.post(path).status_code == 405
+        if path in CONSOLE_SAFE_POST_PATHS:
+            assert client.post(path, headers=CONSOLE_HEADERS, json={}).status_code == 400
+        else:
+            assert client.post(path, headers=CONSOLE_HEADERS, json={}).status_code == 405
         assert client.put(path).status_code == 405
         assert client.patch(path).status_code == 405
         assert client.delete(path).status_code == 405
 
 
-def test_console_namespace_has_no_write_routes():
-    write_methods = {"POST", "PUT", "PATCH", "DELETE"}
+def test_console_namespace_has_only_safe_write_routes():
+    unsafe_methods = {"PUT", "PATCH", "DELETE"}
     console_routes = [
         route
         for route in app.routes
         if getattr(route, "path", "").startswith(("/console", "/console-ui"))
     ]
+    post_routes = {
+        getattr(route, "path", "")
+        for route in console_routes
+        if "POST" in (getattr(route, "methods", set()) or set())
+    }
 
     assert console_routes
+    assert post_routes == set(CONSOLE_SAFE_POST_PATHS)
     assert all(
-        not (set(getattr(route, "methods", set()) or set()) & write_methods)
+        not (set(getattr(route, "methods", set()) or set()) & unsafe_methods)
         for route in console_routes
     )
 

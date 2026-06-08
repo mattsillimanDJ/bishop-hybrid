@@ -47,6 +47,68 @@
         <p id="last-refreshed" class="last-refreshed">Last refreshed: never</p>
       </section>
 
+      <section class="panel capture-panel" aria-labelledby="capture-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Safe Capture</p>
+            <h2 id="capture-title">Feed Bishop</h2>
+          </div>
+          <span class="badge small">Safe writes</span>
+        </div>
+
+        <div class="capture-grid">
+          <form id="task-capture-form" class="capture-form">
+            <label for="task-text">Add Task</label>
+            <textarea id="task-text" rows="3" placeholder="Task to add"></textarea>
+            <select id="task-lane" aria-label="Task lane">
+              <option value="general" selected>Operations</option>
+              <option value="bishop">Bishop</option>
+              <option value="stemlab">StemLab</option>
+              <option value="work">Work</option>
+              <option value="dj">DJ</option>
+              <option value="events">Events</option>
+              <option value="website">Website</option>
+              <option value="personal">Personal</option>
+            </select>
+            <button type="submit">Add Task</button>
+            <p id="task-capture-message" class="capture-message" role="status"></p>
+          </form>
+
+          <form id="memory-capture-form" class="capture-form">
+            <label for="memory-content">Remember This</label>
+            <textarea id="memory-content" rows="3" placeholder="Context Bishop should remember"></textarea>
+            <select id="memory-lane" aria-label="Memory lane">
+              <option value="general" selected>Operations</option>
+              <option value="bishop">Bishop</option>
+              <option value="stemlab">StemLab</option>
+              <option value="work">Work</option>
+              <option value="dj">DJ</option>
+              <option value="events">Events</option>
+              <option value="website">Website</option>
+              <option value="personal">Personal</option>
+            </select>
+            <button type="submit">Remember</button>
+            <p id="memory-capture-message" class="capture-message" role="status"></p>
+          </form>
+
+          <form id="focus-capture-form" class="capture-form">
+            <label for="focus-value">Set Focus</label>
+            <select id="focus-value" aria-label="Focus">
+              <option value="" selected>Choose focus</option>
+              <option value="bishop">Bishop</option>
+              <option value="stemlab">StemLab</option>
+              <option value="work">Work</option>
+              <option value="dj">DJ</option>
+              <option value="events">Events</option>
+              <option value="website">Website</option>
+              <option value="personal">Personal</option>
+            </select>
+            <button type="submit">Set Focus</button>
+            <p id="focus-capture-message" class="capture-message" role="status"></p>
+          </form>
+        </div>
+      </section>
+
       <section class="dashboard-grid command-center" aria-label="Daily operating dashboard">
         <article class="panel hero-card">
           <p class="label">Current Focus</p>
