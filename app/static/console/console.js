@@ -1,5 +1,6 @@
 const TOKEN_KEY = "bishop.console.token";
 const endpoints = {
+  dashboard: "/console/dashboard",
   status: "/console/status",
   projects: "/console/projects",
   nextActions: "/console/next-actions",
@@ -18,6 +19,25 @@ const authMessage = document.querySelector("#auth-message");
 const lastRefreshed = document.querySelector("#last-refreshed");
 
 const sections = {
+  dashboard: {
+    errorSelector: "#dashboard-error",
+    loading: () => {
+      setText("#current-focus", "Loading briefing...");
+      setText("#current-focus-reason", "Checking active focus and pending work.");
+      setText("#current-mode", "Mode: -");
+      setText("#current-lane", "Lane: -");
+      setText("#current-provider", "Provider: -");
+      setText("#today-summary", "Loading today's changes...");
+      setText("#today-tasks", "Tasks added today: -");
+      setText("#today-conversations", "Conversations logged today: -");
+      setText("#today-memory", "Memory added today: -");
+      setText("#next-best-action", "Loading next action...");
+      setText("#next-best-action-detail", "Looking across tasks and today's changes.");
+      setListLoading("#changed-today", "Loading today's changes...");
+      setContainerLoading("#attention-projects", "Loading project attention...");
+    },
+    render: renderDashboard,
+  },
   status: {
     errorSelector: "#status-error",
     loading: () => {
@@ -28,14 +48,6 @@ const sections = {
       setText("#provider", "-");
       setText("#research", "Research: -");
       setText("#counts", "-");
-      setText("#current-focus", "Loading...");
-      setText("#current-mode", "Mode: -");
-      setText("#current-lane", "Lane: -");
-      setText("#current-provider", "Provider: -");
-      setText("#today-summary", "Loading snapshot...");
-      setText("#today-tasks", "Pending tasks: -");
-      setText("#today-conversations", "Conversations: -");
-      setText("#today-memory", "Memory: -");
     },
     render: renderStatus,
   },
@@ -174,14 +186,73 @@ function renderStatus(data) {
     "#counts",
     `${memoryItems} memory | ${pendingTasks} pending | ${recentConversations} conversations`,
   );
-  setText("#current-focus", text(data.focus, "No active focus"));
+}
+
+function renderDashboard(data) {
+  clearSectionError("dashboard");
+  const focus = data.current_focus || {};
+  const summary = data.today_summary || {};
+  const action = data.next_best_action || {};
+
+  setText("#current-focus", text(focus.title, "Review the newest task queue."));
+  setText("#current-focus-reason", text(focus.reason, "Bishop did not find a pressing focus in Console data."));
   setText("#current-mode", `Mode: ${text(data.mode)}`);
   setText("#current-lane", `Lane: ${text(data.lane)}`);
   setText("#current-provider", `Provider: ${text(data.provider?.effective_provider)}`);
-  setText("#today-summary", `${pendingTasks} pending | ${recentConversations} conversations`);
-  setText("#today-tasks", `Pending tasks: ${pendingTasks}`);
-  setText("#today-conversations", `Conversations logged: ${recentConversations}`);
-  setText("#today-memory", `Memory items: ${memoryItems}`);
+
+  setText("#today-summary", text(summary.title, "No changes logged today."));
+  setText("#today-tasks", `Tasks added today: ${text(summary.tasks_added, 0)}`);
+  setText("#today-conversations", `Conversations logged today: ${text(summary.conversations_logged, 0)}`);
+  setText("#today-memory", `Memory added today: ${text(summary.memory_added, 0)}`);
+
+  setText("#next-best-action", text(action.title, "Set a concrete focus for Matt's next work block."));
+  setText("#next-best-action-detail", text(action.detail, "No pending task is available from Console data."));
+
+  renderList(
+    "#changed-today",
+    data.changed_today,
+    (item) =>
+      listItem(
+        text(item.title, "Change logged today"),
+        itemMeta([text(item.detail), text(item.created_at), "read-only"]),
+        "",
+      ),
+    "No same-day changes found in Console data.",
+  );
+
+  renderAttentionProjects(data.attention_projects);
+}
+
+function renderAttentionProjects(items) {
+  const container = document.querySelector("#attention-projects");
+  container.classList.remove("empty");
+  container.innerHTML = "";
+
+  if (!items?.length) {
+    container.classList.add("empty");
+    container.textContent = "No project attention data returned.";
+    return;
+  }
+
+  for (const project of items) {
+    const card = document.createElement("article");
+    card.className = "project-card";
+    card.innerHTML = `
+      <h3></h3>
+      <strong class="health"></strong>
+      <p></p>
+      <p class="meta"></p>
+    `;
+    card.querySelector("h3").textContent = text(project.name);
+    card.querySelector(".health").textContent = text(project.status, "Review");
+    card.querySelector("p").textContent = text(project.reason, "");
+    card.querySelector(".meta").textContent = itemMeta([
+      `${text(project.counts?.pending_tasks, 0)} pending`,
+      `${text(project.counts?.today_memory, 0)} memory today`,
+      "read-only",
+    ]);
+    container.append(card);
+  }
 }
 
 function projectHealth(project) {

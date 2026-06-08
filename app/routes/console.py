@@ -35,6 +35,31 @@ CONSOLE_NEXT_ACTION_FIELDS = (
     "source_message",
     "created_at",
 )
+CONSOLE_DASHBOARD_TASK_FIELDS = (
+    "id",
+    "lane",
+    "status",
+    "task_text",
+    "source_message",
+    "created_at",
+)
+CONSOLE_DASHBOARD_MEMORY_FIELDS = (
+    "id",
+    "category",
+    "content",
+    "lane",
+    "visibility",
+    "created_at",
+)
+CONSOLE_DASHBOARD_CONVERSATION_FIELDS = (
+    "id",
+    "user_message",
+    "assistant_response",
+    "mode",
+    "provider",
+    "created_at",
+)
+CONSOLE_GENERAL_LANE = "general"
 
 
 def require_console_auth(
@@ -213,6 +238,421 @@ def _available_counts(lane: str) -> dict:
     }
 
 
+def _project_name(focus_key: str | None) -> str:
+    if focus_key == CONSOLE_GENERAL_LANE:
+        return "Operations"
+    for project in PROJECTS:
+        if project["focus_key"] == focus_key:
+            return project["name"]
+    return "Operations"
+
+
+def _brief_text(value: str | None, fallback: str, limit: int = 140) -> str:
+    normalized = " ".join((value or "").split())
+    if not normalized:
+        return fallback
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
+
+
+def _row_dicts(rows) -> list[dict]:
+    return [dict(row) for row in rows]
+
+
+def _order_by_for_columns(columns: set[str]) -> str:
+    if "created_at" in columns and "id" in columns:
+        return "created_at DESC, id DESC"
+    if "created_at" in columns:
+        return "created_at DESC"
+    if "id" in columns:
+        return "id DESC"
+    return "ROWID DESC"
+
+
+def _today_where_clause(column: str = "created_at") -> str:
+    # SQLite date() keeps this read-only dashboard simple and deterministic.
+    # It follows the database clock/UTC day, so it is not a timezone-aware boundary.
+    return f"date({column}) = date('now')"
+
+
+def _task_rows(
+    *,
+    limit: int,
+    status: str | None = None,
+    lane: str | None = None,
+    today_only: bool = False,
+) -> tuple[list[dict], bool]:
+    try:
+        with get_task_connection() as conn:
+            columns = _table_columns(conn, "tasks")
+            selected_columns = [
+                column for column in CONSOLE_DASHBOARD_TASK_FIELDS if column in columns
+            ]
+            schema_limited = any(
+                column not in columns for column in CONSOLE_DASHBOARD_TASK_FIELDS
+            )
+
+            if "task_text" not in columns or not selected_columns:
+                return [], True
+
+            clauses = []
+            params: list[Any] = []
+
+            if status:
+                if "status" not in columns:
+                    return [], True
+                clauses.append("status = ?")
+                params.append(status)
+
+            if lane:
+                if "lane" not in columns:
+                    return [], True
+                clauses.append("lane = ?")
+                params.append(lane)
+
+            if today_only:
+                if "created_at" not in columns:
+                    return [], True
+                clauses.append(_today_where_clause())
+
+            where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+            rows = conn.execute(
+                f"""
+                SELECT {", ".join(selected_columns)}
+                FROM tasks
+                {where}
+                ORDER BY {_order_by_for_columns(columns)}
+                LIMIT ?
+                """,
+                (*params, limit),
+            ).fetchall()
+
+        return _row_dicts(rows), schema_limited
+    except sqlite3.Error:
+        return [], True
+
+
+def _memory_rows(*, limit: int, lane: str | None = None, today_only: bool = False) -> list[dict]:
+    try:
+        with get_memory_connection() as conn:
+            clauses = []
+            params: list[Any] = []
+            if lane:
+                clauses.append("lane = ?")
+                params.append(lane)
+            if today_only:
+                clauses.append(_today_where_clause())
+
+            where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+            rows = conn.execute(
+                f"""
+                SELECT {", ".join(CONSOLE_DASHBOARD_MEMORY_FIELDS)}
+                FROM memory_entries
+                {where}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (*params, limit),
+            ).fetchall()
+            return _row_dicts(rows)
+    except sqlite3.Error:
+        return []
+
+
+def _conversation_rows(*, limit: int, today_only: bool = False) -> list[dict]:
+    try:
+        with get_memory_connection() as conn:
+            where = f"WHERE {_today_where_clause()}" if today_only else ""
+            rows = conn.execute(
+                f"""
+                SELECT {", ".join(CONSOLE_DASHBOARD_CONVERSATION_FIELDS)}
+                FROM conversation_logs
+                {where}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return _row_dicts(rows)
+    except sqlite3.Error:
+        return []
+
+
+def _today_count(connection_factory, table_name: str) -> int:
+    return _fetch_count(
+        connection_factory,
+        f"SELECT COUNT(*) FROM {table_name} WHERE {_today_where_clause()}",
+    )
+
+
+def _today_task_count() -> tuple[int, bool]:
+    try:
+        with get_task_connection() as conn:
+            columns = _table_columns(conn, "tasks")
+            if "created_at" not in columns:
+                return 0, True
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM tasks WHERE {_today_where_clause()}"
+            ).fetchone()
+            return int(row[0] or 0) if row else 0, False
+    except sqlite3.Error:
+        return 0, True
+
+
+def _today_memory_count(lane: str | None = None) -> int:
+    if lane:
+        return _fetch_count(
+            get_memory_connection,
+            f"""
+            SELECT COUNT(*)
+            FROM memory_entries
+            WHERE lane = ? AND {_today_where_clause()}
+            """,
+            (lane,),
+        )
+    return _today_count(get_memory_connection, "memory_entries")
+
+
+def _build_changed_today(
+    today_tasks: list[dict],
+    today_memories: list[dict],
+    today_conversations: list[dict],
+) -> list[dict]:
+    items = []
+
+    for task in today_tasks[:3]:
+        items.append(
+            {
+                "type": "task",
+                "title": f"Task captured: {_brief_text(task.get('task_text'), 'Untitled task')}",
+                "detail": f"{_project_name(task.get('lane'))} queue",
+                "lane": task.get("lane"),
+                "created_at": task.get("created_at"),
+                "read_only": True,
+            }
+        )
+
+    for memory in today_memories[:3]:
+        items.append(
+            {
+                "type": "memory",
+                "title": f"Memory added: {_brief_text(memory.get('content'), 'New context')}",
+                "detail": f"{_project_name(memory.get('lane'))} context",
+                "lane": memory.get("lane"),
+                "created_at": memory.get("created_at"),
+                "read_only": True,
+            }
+        )
+
+    for conversation in today_conversations[:3]:
+        items.append(
+            {
+                "type": "conversation",
+                "title": f"Conversation logged: {_brief_text(conversation.get('user_message'), 'Recent exchange')}",
+                "detail": f"Mode {conversation.get('mode') or 'default'}",
+                "lane": None,
+                "created_at": conversation.get("created_at"),
+                "read_only": True,
+            }
+        )
+
+    return sorted(
+        items,
+        key=lambda item: item.get("created_at") or "",
+        reverse=True,
+    )[:6]
+
+
+def _build_attention_projects() -> list[dict]:
+    items = []
+    general_counts = _available_counts(CONSOLE_GENERAL_LANE)
+    general_pending_tasks = general_counts["pending_tasks"]
+    general_today_memory = _today_memory_count(CONSOLE_GENERAL_LANE)
+
+    if (
+        general_pending_tasks
+        or general_today_memory
+        or general_counts["task_schema_limited"]
+    ):
+        if general_counts["task_schema_limited"]:
+            status_label = "Task data limited"
+            reason = "Task schema is limited, so Bishop can only use general work context."
+        elif general_pending_tasks:
+            status_label = "Needs attention"
+            reason = f"{general_pending_tasks} pending general task{'s' if general_pending_tasks != 1 else ''}."
+        else:
+            status_label = "Changed today"
+            reason = f"{general_today_memory} new general memory item{'s' if general_today_memory != 1 else ''} today."
+
+        items.append(
+            {
+                "id": "operations",
+                "name": "Operations",
+                "focus_key": CONSOLE_GENERAL_LANE,
+                "status": status_label,
+                "reason": reason,
+                "score": (
+                    (general_pending_tasks * 3)
+                    + (general_today_memory * 2)
+                    + general_counts["memory"]
+                ),
+                "counts": {
+                    "pending_tasks": general_pending_tasks,
+                    "done_tasks": general_counts["done_tasks"],
+                    "memory": general_counts["memory"],
+                    "today_memory": general_today_memory,
+                    "task_schema_limited": general_counts["task_schema_limited"],
+                },
+                "read_only": True,
+            }
+        )
+
+    for project in PROJECTS:
+        lane = project["focus_key"]
+        counts = _available_counts(lane)
+        today_memory = _today_memory_count(lane)
+        pending_tasks = counts["pending_tasks"]
+        score = (pending_tasks * 3) + (today_memory * 2) + counts["memory"]
+
+        if counts["task_schema_limited"]:
+            status_label = "Task data limited"
+            reason = "Task schema is limited, so Bishop can only use memory context."
+        elif pending_tasks:
+            status_label = "Needs attention"
+            reason = f"{pending_tasks} pending task{'s' if pending_tasks != 1 else ''} in this lane."
+        elif today_memory:
+            status_label = "Changed today"
+            reason = f"{today_memory} new memory item{'s' if today_memory != 1 else ''} today."
+        elif counts["memory"]:
+            status_label = "Context ready"
+            reason = "Context exists, but there is no pending task."
+        else:
+            status_label = "Quiet"
+            reason = "No pending tasks or saved context yet."
+
+        items.append(
+            {
+                "id": project["id"],
+                "name": project["name"],
+                "focus_key": lane,
+                "status": status_label,
+                "reason": reason,
+                "score": score,
+                "counts": {
+                    "pending_tasks": pending_tasks,
+                    "done_tasks": counts["done_tasks"],
+                    "memory": counts["memory"],
+                    "today_memory": today_memory,
+                    "task_schema_limited": counts["task_schema_limited"],
+                },
+                "read_only": True,
+            }
+        )
+
+    return sorted(
+        items,
+        key=lambda item: (
+            item["counts"]["task_schema_limited"] is False,
+            item["score"],
+            item["counts"]["pending_tasks"],
+            item["counts"]["today_memory"],
+        ),
+        reverse=True,
+    )[:4]
+
+
+def _build_current_focus(active_focus: str | None, pending_tasks: list[dict], attention_projects: list[dict]) -> dict:
+    if active_focus:
+        focus_tasks = [task for task in pending_tasks if task.get("lane") == active_focus]
+        task_count = len(focus_tasks)
+        return {
+            "focus": active_focus,
+            "title": f"Stay on {_project_name(active_focus)}.",
+            "reason": (
+                f"{task_count} pending task{'s' if task_count != 1 else ''} in the active focus."
+                if task_count
+                else "This is Matt's active focus; define the next concrete task if the queue is empty."
+            ),
+            "source": "active_focus",
+            "read_only": True,
+        }
+
+    for task in pending_tasks:
+        lane = task.get("lane")
+        if lane in VALID_FOCUSES:
+            return {
+                "focus": lane,
+                "title": f"Focus on {_project_name(lane)} next.",
+                "reason": f"Newest pending task: {_brief_text(task.get('task_text'), 'Untitled task')}",
+                "source": "newest_pending_task",
+                "read_only": True,
+            }
+
+    if pending_tasks:
+        task = pending_tasks[0]
+        return {
+            "focus": task.get("lane"),
+            "title": "Clear the open task queue.",
+            "reason": f"Newest pending task: {_brief_text(task.get('task_text'), 'Untitled task')}",
+            "source": "newest_pending_task",
+            "read_only": True,
+        }
+
+    for project in attention_projects:
+        if project["score"] > 0:
+            return {
+                "focus": project["focus_key"],
+                "title": f"Review {_project_name(project['focus_key'])}.",
+                "reason": project["reason"],
+                "source": "project_activity",
+                "read_only": True,
+            }
+
+    return {
+        "focus": None,
+        "title": "Review the newest task queue.",
+        "reason": "No active focus is set and no project is currently pressing.",
+        "source": "fallback",
+        "read_only": True,
+    }
+
+
+def _build_next_best_action(current_focus: dict, pending_tasks: list[dict], changed_today: list[dict]) -> dict:
+    focus = current_focus.get("focus")
+    focus_tasks = [task for task in pending_tasks if task.get("lane") == focus]
+    task = focus_tasks[0] if focus_tasks else (pending_tasks[0] if pending_tasks else None)
+    if task:
+        return {
+            "title": f"Start with: {_brief_text(task.get('task_text'), 'Untitled task')}",
+            "detail": f"Use the {_project_name(task.get('lane'))} lane; this is the highest-signal pending task.",
+            "lane": task.get("lane"),
+            "source": "pending_task",
+            "created_at": task.get("created_at"),
+            "read_only": True,
+        }
+
+    if changed_today:
+        change = changed_today[0]
+        return {
+            "title": "Turn today's newest change into a concrete next task.",
+            "detail": change["title"],
+            "lane": change.get("lane"),
+            "source": "today_change",
+            "created_at": change.get("created_at"),
+            "read_only": True,
+        }
+
+    return {
+        "title": "Set a concrete focus for Matt's next work block.",
+        "detail": "No pending tasks or same-day changes are available in the Console data.",
+        "lane": None,
+        "source": "fallback",
+        "created_at": None,
+        "read_only": True,
+    }
+
+
 def _console_task(item: dict) -> dict:
     return {
         "id": item.get("id"),
@@ -250,6 +690,69 @@ def _console_conversation(item: dict) -> dict:
         "created_at": item.get("created_at"),
         "memory_used": bool(item.get("memory_used")),
         "read_only": True,
+    }
+
+
+@router.get("/dashboard")
+def console_dashboard() -> dict:
+    active_focus = get_active_focus(CONSOLE_USER_ID, CONSOLE_DEFAULT_LANE)
+    pending_tasks, task_schema_limited = _task_rows(limit=25, status="pending")
+    today_tasks, today_task_schema_limited = _task_rows(limit=10, today_only=True)
+    today_memories = _memory_rows(limit=10, today_only=True)
+    today_conversations = _conversation_rows(limit=10, today_only=True)
+    today_task_count, today_count_schema_limited = _today_task_count()
+    today_memory_count = _today_memory_count()
+    today_conversation_count = _today_count(
+        get_memory_connection,
+        "conversation_logs",
+    )
+    changed_today = _build_changed_today(
+        today_tasks,
+        today_memories,
+        today_conversations,
+    )
+    attention_projects = _build_attention_projects()
+    current_focus = _build_current_focus(
+        active_focus,
+        pending_tasks,
+        attention_projects,
+    )
+    next_best_action = _build_next_best_action(
+        current_focus,
+        pending_tasks,
+        changed_today,
+    )
+
+    return {
+        "app_name": settings.APP_NAME,
+        "console_phase": CONSOLE_PHASE,
+        "read_only": True,
+        "generated_from": "existing_console_data",
+        "today_filter": "sqlite_date_created_at_equals_date_now",
+        "today_filter_timezone": "sqlite_database_day_not_user_timezone",
+        "mode": get_mode(CONSOLE_USER_ID),
+        "lane": CONSOLE_DEFAULT_LANE,
+        "provider": _safe_provider_status(),
+        "current_focus": current_focus,
+        "today_summary": {
+            "title": (
+                f"{today_task_count} task{'s' if today_task_count != 1 else ''}, "
+                f"{today_memory_count} memor{'ies' if today_memory_count != 1 else 'y'}, "
+                f"{today_conversation_count} conversation{'s' if today_conversation_count != 1 else ''} logged today."
+            ),
+            "tasks_added": today_task_count,
+            "memory_added": today_memory_count,
+            "conversations_logged": today_conversation_count,
+            "task_schema_limited": today_task_schema_limited or today_count_schema_limited,
+            "read_only": True,
+        },
+        "changed_today": changed_today,
+        "attention_projects": attention_projects,
+        "next_best_action": next_best_action,
+        "schema_limited": {
+            "tasks": task_schema_limited,
+            "today_tasks": today_task_schema_limited or today_count_schema_limited,
+        },
     }
 
 

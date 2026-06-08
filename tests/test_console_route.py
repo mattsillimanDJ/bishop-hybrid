@@ -6,8 +6,10 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.main import app
 from app.services import task_service
+from app.services import memory_service
+from app.services.conversation_log_service import get_connection as get_conversation_connection
 from app.services.conversation_log_service import get_recent_conversations, log_conversation
-from app.services.focus_service import set_active_focus
+from app.services.focus_service import clear_active_focus, set_active_focus
 from app.services.memory_service import add_memory, get_memories
 from app.services.mode_service import set_mode
 from app.services.task_service import add_task, get_tasks, mark_task_done
@@ -18,6 +20,7 @@ client = TestClient(app)
 CONSOLE_TEST_TOKEN = "test-console-token"
 CONSOLE_HEADERS = {"X-Bishop-Console-Token": CONSOLE_TEST_TOKEN}
 CONSOLE_PATHS = [
+    "/console/dashboard",
     "/console/status",
     "/console/projects",
     "/console/next-actions",
@@ -96,24 +99,33 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert 'id="clear-token"' in page.text
     assert 'id="last-refreshed"' in page.text
     assert 'id="current-focus"' in page.text
+    assert 'id="current-focus-reason"' in page.text
     assert 'id="today-summary"' in page.text
+    assert 'id="next-best-action"' in page.text
+    assert 'id="changed-today"' in page.text
+    assert 'id="attention-projects"' in page.text
     assert 'id="next-actions"' in page.text
-    assert page.text.index("Recommended Next Moves") < page.text.index("Projects")
-    assert "Recommended Next Moves" in page.text
+    assert page.text.index("What Changed Today") < page.text.index("Pending Task Queue")
+    assert "Next Useful Action" in page.text
+    assert "Projects Needing Attention" in page.text
+    assert "Pending Task Queue" in page.text
+    assert "Project Inventory" in page.text
     assert "Today Summary" in page.text
     assert 'src="/console-ui/assets/console.js"' in page.text
 
     source = script.text
     assert 'const TOKEN_KEY = "bishop.console.token";' in source
     assert 'const authPanel = document.querySelector(".auth-panel");' in source
+    assert 'dashboard: "/console/dashboard"' in source
     assert 'nextActions: "/console/next-actions"' in source
     assert "sessionStorage.setItem(TOKEN_KEY, token);" in source
     assert "sessionStorage.removeItem(TOKEN_KEY);" in source
     assert 'authPanel.classList.toggle("authenticated", isCollapsed);' in source
     assert 'changeTokenButton.addEventListener("click"' in source
     assert "projectHealth(project)" in source
-    assert 'setText("#current-focus", text(data.focus, "No active focus"));' in source
-    assert 'setText("#today-summary", `${pendingTasks} pending | ${recentConversations} conversations`);' in source
+    assert 'setText("#current-focus", text(focus.title, "Review the newest task queue."));' in source
+    assert 'setText("#today-summary", text(summary.title, "No changes logged today."));' in source
+    assert "renderAttentionProjects(data.attention_projects);" in source
     assert "loadConsoleData(storedToken());" in source
     assert "Last refreshed: never" in source
     assert "setLastRefreshed(new Date());" in source
@@ -147,6 +159,13 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
         loaded[path] = payload
 
     assert loaded["/console/status"]["counts"]["memory"] >= 1
+    assert loaded["/console/dashboard"]["current_focus"]["title"]
+    assert loaded["/console/dashboard"]["today_summary"]["tasks_added"] >= 1
+    assert loaded["/console/dashboard"]["next_best_action"]["title"]
+    assert any(
+        item["type"] == "task" and "console ui smoke" in item["title"]
+        for item in loaded["/console/dashboard"]["changed_today"]
+    )
     assert any(
         item["content"] == "Console UI smoke memory"
         for item in loaded["/console/memory"]["items"]
@@ -170,6 +189,186 @@ def test_console_ui_browser_smoke_contract_for_read_only_interactions():
     assert failed_section.status_code == 401
     assert still_loaded.status_code == 200
     assert still_loaded.json()["read_only"] is True
+
+
+def test_console_dashboard_returns_read_only_operating_briefing():
+    set_mode("matt", "work")
+    set_active_focus("matt", "matt", "bishop")
+    add_memory("matt", "note", "Dashboard should know Bishop console context", lane="bishop")
+    add_task(
+        user_id="matt",
+        lane="bishop",
+        source_message="add task brief Matt on Console",
+        task_text="brief Matt on Console",
+        assistant_commitment="I'll track it.",
+    )
+    log_conversation(
+        platform="slack",
+        user_id="matt",
+        channel_id="C123",
+        session_id="S123",
+        user_message="what changed in the console today",
+        assistant_response="Console changed today.",
+        memory_used=True,
+        mode="work",
+        provider="openai",
+        model="gpt-test",
+    )
+
+    response = client.get("/console/dashboard", headers=CONSOLE_HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["console_phase"] == "phase_1_read_only"
+    assert data["read_only"] is True
+    assert data["generated_from"] == "existing_console_data"
+    assert data["today_filter"] == "sqlite_date_created_at_equals_date_now"
+    assert data["today_filter_timezone"] == "sqlite_database_day_not_user_timezone"
+    assert data["mode"] == "work"
+    assert data["lane"] == "matt"
+    assert data["current_focus"] == {
+        "focus": "bishop",
+        "title": "Stay on Bishop.",
+        "reason": "1 pending task in the active focus.",
+        "source": "active_focus",
+        "read_only": True,
+    }
+    assert data["today_summary"]["tasks_added"] == 1
+    assert data["today_summary"]["memory_added"] == 1
+    assert data["today_summary"]["conversations_logged"] == 1
+    assert data["today_summary"]["read_only"] is True
+    assert "1 task, 1 memory, 1 conversation logged today." == data["today_summary"]["title"]
+    assert {
+        "current_focus",
+        "today_summary",
+        "changed_today",
+        "attention_projects",
+        "next_best_action",
+    }.issubset(data)
+    assert any(item["type"] == "task" for item in data["changed_today"])
+    assert any(item["type"] == "memory" for item in data["changed_today"])
+    assert any(item["type"] == "conversation" for item in data["changed_today"])
+    assert data["attention_projects"][0]["id"] == "bishop"
+    assert data["attention_projects"][0]["status"] == "Needs attention"
+    assert data["attention_projects"][0]["read_only"] is True
+    assert data["next_best_action"]["title"] == "Start with: brief Matt on Console"
+    assert data["next_best_action"]["source"] == "pending_task"
+    assert data["next_best_action"]["read_only"] is True
+
+
+def test_console_dashboard_today_filter_uses_sqlite_created_at_day_boundary():
+    add_task(
+        user_id="matt",
+        lane="work",
+        source_message="add task current dashboard task",
+        task_text="current dashboard task",
+        assistant_commitment="I'll track it.",
+    )
+    old_task = add_task(
+        user_id="matt",
+        lane="work",
+        source_message="add task old dashboard task",
+        task_text="old dashboard task",
+        assistant_commitment="I'll track it.",
+    )
+    old_memory = add_memory(
+        "matt",
+        "note",
+        "Old dashboard memory",
+        lane="work",
+    )
+    add_memory("matt", "note", "Current dashboard memory", lane="work")
+    log_conversation(
+        platform="slack",
+        user_id="matt",
+        channel_id="C123",
+        session_id="S123",
+        user_message="current dashboard conversation",
+        assistant_response="current response",
+    )
+    log_conversation(
+        platform="slack",
+        user_id="matt",
+        channel_id="C123",
+        session_id="S123",
+        user_message="old dashboard conversation",
+        assistant_response="old response",
+    )
+
+    old_timestamp = "2001-01-02T03:04:05+00:00"
+    with task_service.get_connection() as conn:
+        conn.execute(
+            "UPDATE tasks SET created_at = ? WHERE id = ?",
+            (old_timestamp, old_task["id"]),
+        )
+        conn.commit()
+    with memory_service.get_connection() as conn:
+        conn.execute(
+            "UPDATE memory_entries SET created_at = ? WHERE id = ?",
+            (old_timestamp, old_memory["id"]),
+        )
+        conn.commit()
+    with get_conversation_connection() as conn:
+        conn.execute(
+            "UPDATE conversation_logs SET created_at = ? WHERE user_message = ?",
+            (old_timestamp, "old dashboard conversation"),
+        )
+        conn.commit()
+
+    response = client.get("/console/dashboard", headers=CONSOLE_HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["today_summary"]["tasks_added"] == 1
+    assert data["today_summary"]["memory_added"] == 1
+    assert data["today_summary"]["conversations_logged"] == 1
+    changed_titles = [item["title"] for item in data["changed_today"]]
+    assert any("current dashboard task" in title for title in changed_titles)
+    assert any("Current dashboard memory" in title for title in changed_titles)
+    assert any("current dashboard conversation" in title for title in changed_titles)
+    assert not any("old dashboard" in title.lower() for title in changed_titles)
+
+
+def test_console_dashboard_surfaces_general_pending_tasks_as_operations():
+    clear_active_focus("matt", "matt")
+    task = add_task(
+        user_id="matt",
+        lane="general",
+        source_message="add task review the deck",
+        task_text="review the deck",
+        assistant_commitment="I'll track it.",
+    )
+
+    response = client.get("/console/dashboard", headers=CONSOLE_HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current_focus"] == {
+        "focus": "general",
+        "title": "Clear the open task queue.",
+        "reason": "Newest pending task: review the deck",
+        "source": "newest_pending_task",
+        "read_only": True,
+    }
+    assert data["next_best_action"]["title"] == "Start with: review the deck"
+    assert data["next_best_action"]["detail"] == (
+        "Use the Operations lane; this is the highest-signal pending task."
+    )
+    assert data["next_best_action"]["lane"] == "general"
+    operations = next(
+        item for item in data["attention_projects"] if item["id"] == "operations"
+    )
+    assert operations["name"] == "Operations"
+    assert operations["status"] == "Needs attention"
+    assert operations["reason"] == "1 pending general task."
+    assert operations["counts"]["pending_tasks"] == 1
+    assert operations["read_only"] is True
+    assert task["id"]
+    assert any(
+        item["lane"] == "general" and "review the deck" in item["title"]
+        for item in data["changed_today"]
+        if item["type"] == "task"
+    )
 
 
 def test_console_status_returns_read_only_summary(monkeypatch):
@@ -395,6 +594,7 @@ def test_console_task_endpoints_support_legacy_task_schema_without_lane():
     responses = {
         path: client.get(path, headers=CONSOLE_HEADERS)
         for path in [
+            "/console/dashboard",
             "/console/tasks",
             "/console/next-actions",
             "/console/status",
@@ -533,6 +733,7 @@ def test_console_conversations_returns_existing_conversations_only():
 
 def test_console_routes_do_not_allow_write_methods():
     for path in [
+        "/console/dashboard",
         "/console/status",
         "/console/projects",
         "/console/next-actions",
@@ -585,6 +786,7 @@ def test_console_reads_do_not_mutate_memory_tasks_or_conversations():
     before_conversations = get_recent_conversations(limit=100)
 
     assert client.get("/console/status", headers=CONSOLE_HEADERS).status_code == 200
+    assert client.get("/console/dashboard", headers=CONSOLE_HEADERS).status_code == 200
     assert client.get("/console/projects", headers=CONSOLE_HEADERS).status_code == 200
     assert client.get("/console/next-actions", headers=CONSOLE_HEADERS).status_code == 200
     assert client.get("/console/memory", headers=CONSOLE_HEADERS).status_code == 200

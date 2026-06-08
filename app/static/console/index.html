@@ -51,6 +51,7 @@
         <article class="panel hero-card">
           <p class="label">Current Focus</p>
           <strong id="current-focus">Waiting for token</strong>
+          <span id="current-focus-reason" class="muted">Bishop will brief Matt after data loads.</span>
           <span id="current-mode" class="muted">Mode: -</span>
           <span id="current-lane" class="muted">Lane: -</span>
           <span id="current-provider" class="muted">Provider: -</span>
@@ -63,7 +64,14 @@
           <span id="today-conversations" class="muted">Conversations: -</span>
           <span id="today-memory" class="muted">Memory: -</span>
         </article>
+
+        <article class="panel hero-card">
+          <p class="label">Next Useful Action</p>
+          <strong id="next-best-action">No data loaded</strong>
+          <span id="next-best-action-detail" class="muted">Waiting for briefing data.</span>
+        </article>
       </section>
+      <p id="dashboard-error" class="section-error" role="status"></p>
 
       <section class="status-grid" aria-label="Console status">
         <article class="panel status-card">
@@ -89,9 +97,27 @@
         </article>
       </section>
 
+      <section class="panel" aria-labelledby="changed-today-title">
+        <div class="section-heading">
+          <h2 id="changed-today-title">What Changed Today</h2>
+          <span class="badge small">Read-only</span>
+        </div>
+        <ul id="changed-today" class="item-list empty">
+          <li>No data loaded.</li>
+        </ul>
+      </section>
+
+      <section class="panel" aria-labelledby="attention-projects-title">
+        <div class="section-heading">
+          <h2 id="attention-projects-title">Projects Needing Attention</h2>
+          <span class="badge small">Read-only</span>
+        </div>
+        <div id="attention-projects" class="project-grid empty">No data loaded.</div>
+      </section>
+
       <section class="panel" aria-labelledby="next-actions-title">
         <div class="section-heading">
-          <h2 id="next-actions-title">Recommended Next Moves</h2>
+          <h2 id="next-actions-title">Pending Task Queue</h2>
           <span class="badge small">Read-only</span>
         </div>
         <p id="next-actions-error" class="section-error" role="status"></p>
@@ -102,7 +128,7 @@
 
       <section class="panel" aria-labelledby="projects-title">
         <div class="section-heading">
-          <h2 id="projects-title">Projects</h2>
+          <h2 id="projects-title">Project Inventory</h2>
           <span class="badge small">Read-only</span>
         </div>
         <p id="projects-error" class="section-error" role="status"></p>
